@@ -29,8 +29,20 @@ compile :: proc(srcdir: string, destdir: string) {
 compile_file :: proc(filename: string, input_file: string, output_dir: string) {
 	shader_name := strings.join({output_dir, filename, ".wgsl"}, "")
 	defer delete(shader_name)
+	reflection_name := strings.join({output_dir, filename, ".json"}, "")
+	defer delete(reflection_name)
 	process_info := os.Process_Desc {
-		command = []string{"slangc", "-target", "wgsl", "-o", shader_name, "--", input_file},
+		command = []string {
+			"slangc",
+			"-target",
+			"wgsl",
+			"-reflection-json",
+			reflection_name,
+			"-o",
+			shader_name,
+			"--",
+			input_file,
+		},
 		stdout  = os.stdout,
 		stderr  = os.stderr,
 		stdin   = os.stdin,
@@ -48,7 +60,13 @@ compile_file :: proc(filename: string, input_file: string, output_dir: string) {
 }
 
 load_shader :: proc(shader_name: string) -> string {
-	comp := strings.join({"shaders/", shader_name, ".wgsl"}, "")
+	type := "wgsl"
+	shader_name := shader_name
+	if (strings.ends_with(shader_name, ".spirv")) {
+		type = "spirv"
+		shader_name = strings.trim_suffix(shader_name, ".spirv")
+	}
+	comp := strings.join({"shaders/", shader_name, ".", type}, "")
 	defer delete(comp)
 	fmt.printfln("Loading shader: %s", comp)
 	code, err := os.read_entire_file(comp, context.allocator)

@@ -84,14 +84,14 @@ main :: proc() {
 		fmt.panicf("Failed to create window: %v\n", sdl.GetError())
 	}
 
-	state.instance = wgpu.CreateInstance(nil)
+	state.instance = wgpu.CreateInstance(&wgpu.InstanceDescriptor{})
 	if state.instance == nil {
 		fmt.panicf("Failed to create WGPU instance\n")
 	}
 	state.surface = sdl3glue.GetSurface(state.instance, state.window)
 	wgpu.InstanceRequestAdapter(
 		state.instance,
-		&{compatibleSurface = state.surface},
+		&wgpu.RequestAdapterOptions{compatibleSurface = state.surface},
 		{callback = on_adapter},
 	)
 
@@ -107,7 +107,7 @@ main :: proc() {
 		}
 		fmt.printfln("Got a Adapter")
 		state.adapter = adapter
-		wgpu.AdapterRequestDevice(adapter, nil, {callback = on_device})
+		wgpu.AdapterRequestDevice(adapter, &wgpu.DeviceDescriptor{}, {callback = on_device})
 	}
 
 
@@ -148,16 +148,17 @@ main :: proc() {
 		run_game()
 	}
 }
+
 get_window_size_absolute :: proc() -> (w: i32, h: i32) {
 	width, height: i32
 	sdl.GetWindowSize(state.window, &width, &height)
-	fmt.printfln("Window size is %d x %d", width, height)
+	// fmt.printfln("Window size is %d x %d", width, height)
 	return width, height
 }
 get_window_size :: proc() -> (w: i32, h: i32) {
 	width, height: i32
 	sdl.GetWindowSizeInPixels(state.window, &width, &height)
-	fmt.printfln("Window size is %d x %d", width, height)
+	// fmt.printfln("Window size is %d x %d", width, height)
 	return width, height
 }
 get_dpi :: proc() -> f32 {
@@ -263,51 +264,9 @@ resize :: proc() {
 
 	state.config.width, state.config.height = cast(u32)width, cast(u32)height
 	wgpu.SurfaceConfigure(state.surface, &state.config)
+	fmt.printfln("Resized surface to %d x %d", width, height)
 }
-rebuild_shaders :: proc() {
-	context = state.ctx
 
-	fmt.printfln("Reloading shaders...")
-
-	compiler.compile("shader_src/", "shaders/")
-
-	shader := compiler.load_shader("default")
-	defer delete(shader)
-
-	state.module = wgpu.DeviceCreateShaderModule(
-		state.device,
-		&{nextInChain = &wgpu.ShaderSourceWGSL{sType = .ShaderSourceWGSL, code = shader}},
-	)
-	layouts := [?]wgpu.BindGroupLayout{}
-
-	state.pipeline_layout = wgpu.DeviceCreatePipelineLayout(
-		state.device,
-		&{
-			label = "pipeline layout",
-			// bindGroupLayoutCount = 0,
-			// bindGroupLayouts = raw_data(layouts[:]),
-		},
-	)
-
-	state.pipeline = wgpu.DeviceCreateRenderPipeline(
-		state.device,
-		&{
-			layout = state.pipeline_layout,
-			vertex = {module = state.module, entryPoint = "vs_main"},
-			fragment = &{
-				module = state.module,
-				entryPoint = "fs_main",
-				targetCount = 1,
-				targets = &wgpu.ColorTargetState {
-					format = .BGRA8Unorm,
-					writeMask = wgpu.ColorWriteMaskFlags_All,
-				},
-			},
-			primitive = {topology = .TriangleList},
-			multisample = {count = 1, mask = 0xFFFFFFFF},
-		},
-	)
-}
 frame :: proc(dt: f32) {
 	context = state.ctx
 
@@ -320,9 +279,13 @@ frame :: proc(dt: f32) {
 		if surface_texture.texture != nil {
 			wgpu.TextureRelease(surface_texture.texture)
 		}
+		fmt.printfln(
+			"Surface texture not available, status=%v. Resizing surface...",
+			surface_texture.status,
+		)
 		resize()
 		return
-	case .OutOfMemory, .DeviceLost, .Error:
+	case .Occluded, .Error:
 		// Fatal error
 		fmt.panicf("[triangle] get_current_texture status=%v", surface_texture.status)
 	}
@@ -331,9 +294,7 @@ frame :: proc(dt: f32) {
 	mc := &state.mu_ctx
 
 	mu.begin(mc)
-
 	demo_windows(mc)
-	// rc_debug_window(mc)
 	mu.end(mc)
 
 	defer wgpu.TextureRelease(surface_texture.texture)
@@ -398,150 +359,4 @@ finish :: proc() {
 	wgpu.AdapterRelease(state.adapter)
 	wgpu.SurfaceRelease(state.surface)
 	wgpu.InstanceRelease(state.instance)
-}
-
-
-demo_windows :: proc(ctx: ^mu.Context) {
-	@(static) opts := mu.Options{.NO_CLOSE}
-
-	if mu.window(ctx, "Demo Window", {40, 40, 300, 450}, opts) {
-		if .ACTIVE in mu.header(ctx, "Window Info") {
-			win := mu.get_current_container(ctx)
-			mu.layout_row(ctx, {54, -1}, 0)
-			mu.label(ctx, "Position:")
-			mu.label(ctx, fmt.tprintf("%d, %d", win.rect.x, win.rect.y))
-			mu.label(ctx, "Size:")
-			mu.label(ctx, fmt.tprintf("%d, %d", win.rect.w, win.rect.h))
-		}
-
-		if .ACTIVE in mu.header(ctx, "Window Options") {
-			mu.layout_row(ctx, {120, 120, 120}, 0)
-			for opt in mu.Opt {
-				state := opt in opts
-				if .CHANGE in mu.checkbox(ctx, fmt.tprintf("%v", opt), &state) {
-					if state {
-						opts += {opt}
-					} else {
-						opts -= {opt}
-					}
-				}
-			}
-		}
-
-		if .ACTIVE in mu.header(ctx, "Test Buttons", {.EXPANDED}) {
-			mu.layout_row(ctx, {86, -110, -1})
-			mu.label(ctx, "Test buttons 1:")
-			if .SUBMIT in mu.button(ctx, "Button 1") {fmt.println("Pressed button 1")}
-			if .SUBMIT in mu.button(ctx, "Button 2") {fmt.println("Pressed button 2")}
-			mu.label(ctx, "Test buttons 2:")
-			if .SUBMIT in mu.button(ctx, "Button 3") {fmt.println("Pressed button 3")}
-			if .SUBMIT in mu.button(ctx, "Button 4") {fmt.println("Pressed button 4")}
-		}
-
-		if .ACTIVE in mu.header(ctx, "Tree and Text", {.EXPANDED}) {
-			mu.layout_row(ctx, {140, -1})
-			mu.layout_begin_column(ctx)
-			if .ACTIVE in mu.treenode(ctx, "Test 1") {
-				if .ACTIVE in mu.treenode(ctx, "Test 1a") {
-					mu.label(ctx, "Hello")
-					mu.label(ctx, "world")
-				}
-				if .ACTIVE in mu.treenode(ctx, "Test 1b") {
-					if .SUBMIT in mu.button(ctx, "Button 1") {fmt.println("Pressed button 1")}
-					if .SUBMIT in mu.button(ctx, "Button 2") {fmt.println("Pressed button 2")}
-				}
-			}
-			if .ACTIVE in mu.treenode(ctx, "Test 2") {
-				mu.layout_row(ctx, {53, 53})
-				if .SUBMIT in mu.button(ctx, "Button 3") {fmt.println("Pressed button 3")}
-				if .SUBMIT in mu.button(ctx, "Button 4") {fmt.println("Pressed button 4")}
-				if .SUBMIT in mu.button(ctx, "Button 5") {fmt.println("Pressed button 5")}
-				if .SUBMIT in mu.button(ctx, "Button 6") {fmt.println("Pressed button 6")}
-			}
-			if .ACTIVE in mu.treenode(ctx, "Test 3") {
-				@(static) checks := [3]bool{true, false, true}
-				mu.checkbox(ctx, "Checkbox 1", &checks[0])
-				mu.checkbox(ctx, "Checkbox 2", &checks[1])
-				mu.checkbox(ctx, "Checkbox 3", &checks[2])
-
-			}
-			mu.layout_end_column(ctx)
-
-			mu.layout_begin_column(ctx)
-			mu.layout_row(ctx, {-1})
-			mu.text(
-				ctx,
-				"Lorem ipsum dolor sit amet, consectetur adipiscing " +
-				"elit. Maecenas lacinia, sem eu lacinia molestie, mi risus faucibus " +
-				"ipsum, eu varius magna felis a nulla.",
-			)
-			mu.layout_end_column(ctx)
-		}
-
-		if .ACTIVE in mu.header(ctx, "Background Colour", {.EXPANDED}) {
-			mu.layout_row(ctx, {-78, -1}, 68)
-			mu.layout_begin_column(ctx)
-			{
-				mu.layout_row(ctx, {46, -1}, 0)
-				mu.label(ctx, "Red:"); u8_slider(ctx, &state.bg.r, 0, 255)
-				mu.label(ctx, "Green:"); u8_slider(ctx, &state.bg.g, 0, 255)
-				mu.label(ctx, "Blue:"); u8_slider(ctx, &state.bg.b, 0, 255)
-			}
-			mu.layout_end_column(ctx)
-
-			r := mu.layout_next(ctx)
-			mu.draw_rect(ctx, r, state.bg)
-			mu.draw_box(ctx, mu.expand_rect(r, 1), ctx.style.colors[.BORDER])
-			mu.draw_control_text(
-				ctx,
-				fmt.tprintf("#%02x%02x%02x", state.bg.r, state.bg.g, state.bg.b),
-				r,
-				.TEXT,
-				{.ALIGN_CENTER},
-			)
-		}
-	}
-
-
-	if mu.window(ctx, "Style Window", {350, 250, 300, 240}) {
-		@(static) colors := [mu.Color_Type]string {
-			.TEXT         = "text",
-			.BORDER       = "border",
-			.WINDOW_BG    = "window bg",
-			.TITLE_BG     = "title bg",
-			.TITLE_TEXT   = "title text",
-			.PANEL_BG     = "panel bg",
-			.BUTTON       = "button",
-			.BUTTON_HOVER = "button hover",
-			.BUTTON_FOCUS = "button focus",
-			.BASE         = "base",
-			.BASE_HOVER   = "base hover",
-			.BASE_FOCUS   = "base focus",
-			.SCROLL_BASE  = "scroll base",
-			.SCROLL_THUMB = "scroll thumb",
-			.SELECTION_BG = "selection bg",
-		}
-
-		sw := i32(f32(mu.get_current_container(ctx).body.w) * 0.14)
-		mu.layout_row(ctx, {80, sw, sw, sw, sw, -1})
-		for label, col in colors {
-			mu.label(ctx, label)
-			u8_slider(ctx, &ctx.style.colors[col].r, 0, 255)
-			u8_slider(ctx, &ctx.style.colors[col].g, 0, 255)
-			u8_slider(ctx, &ctx.style.colors[col].b, 0, 255)
-			u8_slider(ctx, &ctx.style.colors[col].a, 0, 255)
-			mu.draw_rect(ctx, mu.layout_next(ctx), ctx.style.colors[col])
-		}
-	}
-}
-
-u8_slider :: proc(ctx: ^mu.Context, val: ^u8, lo, hi: u8) -> (res: mu.Result_Set) {
-	mu.push_id(ctx, uintptr(val))
-
-	@(static) tmp: mu.Real
-	tmp = mu.Real(val^)
-	res = mu.slider(ctx, &tmp, mu.Real(lo), mu.Real(hi), 0, "%.0f", {.ALIGN_CENTER})
-	val^ = u8(tmp)
-	mu.pop_id(ctx)
-	return
 }
