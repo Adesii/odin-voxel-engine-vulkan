@@ -5,369 +5,207 @@ import intr "base:intrinsics"
 import "core:fmt"
 import "core:math/linalg"
 
-import utils "utils"
 import mu "vendor:microui"
-import "vendor:wgpu"
+import sdl "vendor:sdl3"
+import vk "vendor:vulkan"
 
 BUFFER_SIZE :: 16384
 
+vulkan_buffer :: struct {
+	buffer: vk.Buffer,
+	memory: vk.DeviceMemory,
+	size:   vk.DeviceSize,
+}
+
 microui_ctx :: struct {
-	module:             wgpu.ShaderModule,
-	atlas_texture:      wgpu.Texture,
-	atlas_texture_view: wgpu.TextureView,
-	pipeline_layout:    wgpu.PipelineLayout,
-	pipeline:           wgpu.RenderPipeline,
-	const_buffer:       wgpu.Buffer,
-	tex_buffer:         wgpu.Buffer,
-	vertex_buffer:      wgpu.Buffer,
-	color_buffer:       wgpu.Buffer,
-	index_buffer:       wgpu.Buffer,
-	sampler:            wgpu.Sampler,
-	bind_group_layout:  wgpu.BindGroupLayout,
-	bind_group:         wgpu.BindGroup,
-	curr_encoder:       wgpu.CommandEncoder,
-	curr_pass:          wgpu.RenderPassEncoder,
-	curr_texture:       wgpu.SurfaceTexture,
-	curr_view:          wgpu.TextureView,
-	tex_buf:            [BUFFER_SIZE * 8]f32,
-	vert_buf:           [BUFFER_SIZE * 8]f32,
-	color_buf:          [BUFFER_SIZE * 16]u8,
-	index_buf:          [BUFFER_SIZE * 6]u32,
-	prev_buf_idx:       u32,
-	buf_idx:            u32,
+	texture_image:       vk.Image,
+	texture_memory:      vk.DeviceMemory,
+	texture_view:        vk.ImageView,
+	sampler:             vk.Sampler,
+	descriptor_layout:   vk.DescriptorSetLayout,
+	descriptor_pool:     vk.DescriptorPool,
+	descriptor_set:      vk.DescriptorSet,
+	pipeline_layout:     vk.PipelineLayout,
+	pipeline:            vk.Pipeline,
+	render_pass:         vk.RenderPass,
+	framebuffers:        []vk.Framebuffer,
+	vertex_buffer:       vulkan_buffer,
+	tex_buffer:          vulkan_buffer,
+	color_buffer:        vulkan_buffer,
+	index_buffer:        vulkan_buffer,
+	const_buffer:        vulkan_buffer,
+	shader_module:       vk.ShaderModule,
+	tex_buf:             [BUFFER_SIZE * 8]f32,
+	vert_buf:            [BUFFER_SIZE * 8]f32,
+	color_buf:           [BUFFER_SIZE * 16]u8,
+	index_buf:           [BUFFER_SIZE * 6]u32,
+	prev_buf_idx:        u32,
+	buf_idx:             u32,
+	current_command:     vk.CommandBuffer,
+	current_framebuffer: vk.Framebuffer,
 }
 
-r_on_adapter_and_device :: proc() {
-	r := &state.renderer
-
-	r.const_buffer = wgpu.DeviceCreateBuffer(
-		state.device,
-		&{
-			label = "Constant buffer",
-			usage = {.Uniform, .CopyDst},
-			size = size_of(matrix[4, 4]f32),
-		},
-	)
-
-	r.atlas_texture = wgpu.DeviceCreateTexture(
-		state.device,
-		&{
-			usage = {.TextureBinding, .CopyDst},
-			dimension = ._2D,
-			size = {mu.DEFAULT_ATLAS_WIDTH, mu.DEFAULT_ATLAS_HEIGHT, 1},
-			format = .R8Unorm,
-			mipLevelCount = 1,
-			sampleCount = 1,
-		},
-	)
-	r.atlas_texture_view = wgpu.TextureCreateView(r.atlas_texture, nil)
-
-	r.sampler = wgpu.DeviceCreateSampler(
-		state.device,
-		&{
-			addressModeU = .ClampToEdge,
-			addressModeV = .ClampToEdge,
-			addressModeW = .ClampToEdge,
-			magFilter = .Nearest,
-			minFilter = .Nearest,
-			mipmapFilter = .Nearest,
-			lodMinClamp = 0,
-			lodMaxClamp = 32,
-			compare = .Undefined,
-			maxAnisotropy = 1,
-		},
-	)
-
-	r.vertex_buffer = wgpu.DeviceCreateBuffer(
-		state.device,
-		&{label = "Vertex Buffer", usage = {.Vertex, .CopyDst}, size = size_of(r.vert_buf)},
-	)
-
-	r.tex_buffer = wgpu.DeviceCreateBuffer(
-		state.device,
-		&{label = "Texture Buffer", usage = {.Vertex, .CopyDst}, size = size_of(r.tex_buf)},
-	)
-
-	r.color_buffer = wgpu.DeviceCreateBuffer(
-		state.device,
-		&{label = "Color Buffer", usage = {.Vertex, .CopyDst}, size = size_of(r.color_buf)},
-	)
-
-	r.index_buffer = wgpu.DeviceCreateBuffer(
-		state.device,
-		&{label = "Index Buffer", usage = {.Index, .CopyDst}, size = size_of(r.index_buf)},
-	)
-
-	r.bind_group_layout = wgpu.DeviceCreateBindGroupLayout(
-		state.device,
-		&{
-			entryCount = 3,
-			entries = raw_data(
-				[]wgpu.BindGroupLayoutEntry {
-					{binding = 0, visibility = {.Fragment}, sampler = {type = .Filtering}},
-					{
-						binding = 1,
-						visibility = {.Fragment},
-						texture = {
-							sampleType = .Float,
-							viewDimension = ._2D,
-							multisampled = false,
-						},
-					},
-					{
-						binding = 2,
-						visibility = {.Vertex},
-						buffer = {type = .Uniform, minBindingSize = size_of(matrix[4, 4]f32)},
-					},
-				},
-			),
-		},
-	)
-
-	r.bind_group = wgpu.DeviceCreateBindGroup(
-		state.device,
-		&{
-			layout = r.bind_group_layout,
-			entryCount = 3,
-			entries = raw_data(
-				[]wgpu.BindGroupEntry {
-					{binding = 0, sampler = r.sampler},
-					{binding = 1, textureView = r.atlas_texture_view},
-					{binding = 2, buffer = r.const_buffer, size = size_of(matrix[4, 4]f32)},
-				},
-			),
-		},
-	)
-	ui_shader := utils.load_shader("ui_shader")
-	defer delete(ui_shader)
-	r.module = wgpu.DeviceCreateShaderModule(
-		state.device,
-		&{nextInChain = &wgpu.ShaderSourceWGSL{sType = .ShaderSourceWGSL, code = ui_shader}},
-	)
-
-	r.pipeline_layout = wgpu.DeviceCreatePipelineLayout(
-		state.device,
-		&{bindGroupLayoutCount = 1, bindGroupLayouts = &r.bind_group_layout},
-	)
-	r.pipeline = wgpu.DeviceCreateRenderPipeline(
-		state.device,
-		&{
-			layout = r.pipeline_layout,
-			vertex = {
-				module = r.module,
-				entryPoint = "vs_main",
-				bufferCount = 3,
-				buffers = raw_data(
-					[]wgpu.VertexBufferLayout {
-						{
-							stepMode = .Vertex,
-							arrayStride = 8,
-							attributeCount = 1,
-							attributes = &wgpu.VertexAttribute {
-								format = .Float32x2,
-								shaderLocation = 0,
-							},
-						},
-						{
-							stepMode = .Vertex,
-							arrayStride = 8,
-							attributeCount = 1,
-							attributes = &wgpu.VertexAttribute {
-								format = .Float32x2,
-								shaderLocation = 1,
-							},
-						},
-						{
-							stepMode = .Vertex,
-							arrayStride = 4,
-							attributeCount = 1,
-							attributes = &wgpu.VertexAttribute {
-								format = .Uint32,
-								shaderLocation = 2,
-							},
-						},
-					},
-				),
-			},
-			fragment = &{
-				module = r.module,
-				entryPoint = "fs_main",
-				targetCount = 1,
-				targets = &wgpu.ColorTargetState {
-					format = .BGRA8Unorm,
-					blend = &{
-						alpha = {
-							srcFactor = .SrcAlpha,
-							dstFactor = .OneMinusSrcAlpha,
-							operation = .Add,
-						},
-						color = {
-							srcFactor = .SrcAlpha,
-							dstFactor = .OneMinusSrcAlpha,
-							operation = .Add,
-						},
-					},
-					writeMask = wgpu.ColorWriteMaskFlags_All,
-				},
-			},
-			primitive = {topology = .TriangleList, cullMode = .None},
-			multisample = {count = 1, mask = 0xFFFFFFFF},
-		},
-	)
-
-
-	wgpu.QueueWriteTexture(
-		state.queue,
-		&{texture = r.atlas_texture},
-		&mu.default_atlas_alpha,
-		mu.DEFAULT_ATLAS_WIDTH * mu.DEFAULT_ATLAS_HEIGHT,
-		&{bytesPerRow = mu.DEFAULT_ATLAS_WIDTH, rowsPerImage = mu.DEFAULT_ATLAS_HEIGHT},
-		&{mu.DEFAULT_ATLAS_WIDTH, mu.DEFAULT_ATLAS_HEIGHT, 1},
-	)
-
-	r_write_consts()
-
-
+get_dpi :: proc() -> f32 {
+	return sdl.GetDisplayContentScale(sdl.GetDisplayForWindow(state.window))
 }
 
+convert_key :: proc(sdlkey: sdl.Keycode) -> mu.Key {
+	mu_key: mu.Key
+	switch sdlkey {
+	case sdl.K_LSHIFT, sdl.K_RSHIFT:
+		mu_key = .SHIFT
+	case sdl.K_LCTRL, sdl.K_RCTRL:
+		mu_key = .CTRL
+	case sdl.K_LALT, sdl.K_RALT:
+		mu_key = .ALT
+	case sdl.K_BACKSPACE:
+		mu_key = .BACKSPACE
+	case sdl.K_DELETE:
+		mu_key = .DELETE
+	case sdl.K_RETURN:
+		mu_key = .RETURN
+	case sdl.K_LEFT:
+		mu_key = .LEFT
+	case sdl.K_RIGHT:
+		mu_key = .RIGHT
+	case sdl.K_HOME:
+		mu_key = .HOME
+	case sdl.K_END:
+		mu_key = .END
+	case sdl.K_A:
+		mu_key = .A
+	case sdl.K_X:
+		mu_key = .X
+	case sdl.K_C:
+		mu_key = .C
+	case sdl.K_V:
+		mu_key = .V
+	}
+
+	return mu_key
+}
 
 r_write_consts :: proc() {
-	r := &state.renderer
-
-	// Transformation matrix to convert from screen to device pixels and scale based on DPI.
+	r := &state.renderer.ui
 	dpi := get_dpi()
 	width, height := get_window_size()
 	fw, fh := f32(width), f32(height)
-	transform := linalg.matrix_ortho3d(0, fw, fh, 0, -1, 1) * linalg.matrix4_scale(dpi)
-
-	// fmt.printfln("Transform matrix: %v", transform)
-
-	wgpu.QueueWriteBuffer(state.queue, r.const_buffer, 0, &transform, size_of(transform))
-}
-
-r_bind :: proc() {
-	r := &state.renderer
-
-	wgpu.RenderPassEncoderSetPipeline(r.curr_pass, r.pipeline)
-	wgpu.RenderPassEncoderSetBindGroup(r.curr_pass, 0, r.bind_group)
-	wgpu.RenderPassEncoderSetVertexBuffer(r.curr_pass, 0, r.vertex_buffer, 0, size_of(r.vert_buf))
-	wgpu.RenderPassEncoderSetVertexBuffer(r.curr_pass, 1, r.tex_buffer, 0, size_of(r.tex_buf))
-	wgpu.RenderPassEncoderSetVertexBuffer(r.curr_pass, 2, r.color_buffer, 0, size_of(r.color_buf))
-	wgpu.RenderPassEncoderSetIndexBuffer(
-		r.curr_pass,
-		r.index_buffer,
-		.Uint32,
+	transform := linalg.matrix_ortho3d(0, fw, 0, fh, -1, 1) * linalg.matrix4_scale(dpi)
+	vulkan_write_buffer(
+		&r.const_buffer,
+		raw_data([]matrix[4, 4]f32{transform}),
+		size_of(transform),
 		0,
-		size_of(r.index_buf),
 	)
 }
 
 r_flush :: proc() {
-	r := &state.renderer
-
-	if r.buf_idx == 0 || r.buf_idx == r.prev_buf_idx {return}
-
-	delta := uint(r.buf_idx - r.prev_buf_idx)
-	wgpu.RenderPassEncoderDrawIndexed(r.curr_pass, u32(delta * 6), 1, r.prev_buf_idx * 6, 0, 0)
-
+	r := &state.renderer.ui
+	if r.buf_idx == 0 || r.buf_idx == r.prev_buf_idx {
+		return
+	}
+	delta := r.buf_idx - r.prev_buf_idx
+	vk.CmdDrawIndexed(r.current_command, delta * 6, 1, r.prev_buf_idx * 6, 0, 0)
 	r.prev_buf_idx = r.buf_idx
 }
 
-r_full_flush :: proc() {
-	r := &state.renderer
-
-	r_submit()
-
-	r.buf_idx = 0
-	r.prev_buf_idx = 0
-
-	r.curr_pass = wgpu.CommandEncoderBeginRenderPass(
-		r.curr_encoder,
-		&{
-			colorAttachmentCount = 1,
-			colorAttachments = &wgpu.RenderPassColorAttachment {
-				view = r.curr_view,
-				loadOp = .Load,
-				storeOp = .Store,
-			},
-		},
+r_bind :: proc(command_buffer: vk.CommandBuffer) {
+	r := &state.renderer.ui
+	if r.pipeline == {} ||
+	   r.pipeline_layout == {} ||
+	   r.descriptor_set == {} ||
+	   r.vertex_buffer.buffer == {} ||
+	   r.index_buffer.buffer == {} {
+		fmt.panicf(
+			"UI bind with invalid state pipeline=%v layout=%v set=%v vbuf=%v ibuf=%v",
+			r.pipeline,
+			r.pipeline_layout,
+			r.descriptor_set,
+			r.vertex_buffer.buffer,
+			r.index_buffer.buffer,
+		)
+	}
+	vk.CmdBindPipeline(command_buffer, .GRAPHICS, r.pipeline)
+	vk.CmdBindDescriptorSets(
+		command_buffer,
+		.GRAPHICS,
+		r.pipeline_layout,
+		0,
+		1,
+		&r.descriptor_set,
+		0,
+		nil,
 	)
-
-	r_bind()
+	buffers := [3]vk.Buffer{r.vertex_buffer.buffer, r.tex_buffer.buffer, r.color_buffer.buffer}
+	offsets := [3]vk.DeviceSize{0, 0, 0}
+	vk.CmdBindVertexBuffers(command_buffer, 0, 3, &buffers[0], &offsets[0])
+	vk.CmdBindIndexBuffer(command_buffer, r.index_buffer.buffer, 0, .UINT32)
 }
 
 r_submit :: proc() {
-	r := &state.renderer
-
+	r := &state.renderer.ui
 	r_flush()
-
 	r_write_consts()
-	wgpu.QueueWriteBuffer(
-		state.queue,
-		r.vertex_buffer,
+	vulkan_write_buffer(
+		&r.vertex_buffer,
+		raw_data(r.vert_buf[:]),
+		int(r.buf_idx * 8 * size_of(f32)),
 		0,
-		&r.vert_buf,
-		uint(r.buf_idx * 8 * size_of(f32)),
 	)
-	wgpu.QueueWriteBuffer(
-		state.queue,
-		r.tex_buffer,
+	vulkan_write_buffer(
+		&r.tex_buffer,
+		raw_data(r.tex_buf[:]),
+		int(r.buf_idx * 8 * size_of(f32)),
 		0,
-		&r.tex_buf,
-		uint(r.buf_idx * 8 * size_of(f32)),
 	)
-	wgpu.QueueWriteBuffer(state.queue, r.color_buffer, 0, &r.color_buf, uint(r.buf_idx * 16))
-	wgpu.QueueWriteBuffer(
-		state.queue,
-		r.index_buffer,
+	vulkan_write_buffer(&r.color_buffer, raw_data(r.color_buf[:]), int(r.buf_idx * 16), 0)
+	vulkan_write_buffer(
+		&r.index_buffer,
+		raw_data(r.index_buf[:]),
+		int(r.buf_idx * 6 * size_of(u32)),
 		0,
-		&r.index_buf,
-		uint(r.buf_idx * 6 * size_of(u32)),
 	)
-
-	wgpu.RenderPassEncoderEnd(r.curr_pass)
-	wgpu.RenderPassEncoderRelease(r.curr_pass)
 }
-r_clear :: proc(color: mu.Color) -> bool {
-	r := &state.renderer
 
+r_begin :: proc(command_buffer: vk.CommandBuffer, framebuffer: vk.Framebuffer) {
+	r := &state.renderer.ui
 	r.buf_idx = 0
 	r.prev_buf_idx = 0
-
-
-	r.curr_pass = wgpu.CommandEncoderBeginRenderPass(
-		r.curr_encoder,
-		&{
-			colorAttachmentCount = 1,
-			colorAttachments = raw_data(
-				[]wgpu.RenderPassColorAttachment {
-					{
-						view = r.curr_view,
-						loadOp = .Load,
-						storeOp = .Store,
-						clearValue = {
-							f64(color.r) / 255,
-							f64(color.g) / 255,
-							f64(color.b) / 255,
-							0,
-						},
-						depthSlice = wgpu.DEPTH_SLICE_UNDEFINED,
-					},
-				},
-			),
-		},
+	r.current_command = command_buffer
+	r.current_framebuffer = framebuffer
+	begin_info := vk.RenderPassBeginInfo {
+		sType = .RENDER_PASS_BEGIN_INFO,
+		renderPass = r.render_pass,
+		framebuffer = framebuffer,
+		renderArea = {extent = state.renderer.extent},
+	}
+	vk.CmdBeginRenderPass(command_buffer, &begin_info, .INLINE)
+	r_bind(command_buffer)
+	vulkan_set_scissor(
+		command_buffer,
+		0,
+		0,
+		state.renderer.extent.width,
+		state.renderer.extent.height,
 	)
-
-	r_bind()
-
-	return true
 }
 
-r_render :: proc() {
-	r := &state.renderer
-	if !r_clear(state.bg) {
-		return
-	}
+r_end :: proc() {
+	r_submit()
+	vk.CmdEndRenderPass(state.renderer.ui.current_command)
+}
+
+r_full_flush :: proc() {
+	r := &state.renderer.ui
+	r_submit()
+	r.buf_idx = 0
+	r.prev_buf_idx = 0
+	vk.CmdEndRenderPass(r.current_command)
+	r_begin(r.current_command, r.current_framebuffer)
+}
+
+r_render :: proc(command_buffer: vk.CommandBuffer, framebuffer: vk.Framebuffer) {
+	r_begin(command_buffer, framebuffer)
 	command_backing: ^mu.Command
 	for variant in mu.next_command_iterator(&state.mu_ctx, &command_backing) {
 		switch cmd in variant {
@@ -383,21 +221,18 @@ r_render :: proc() {
 			unreachable()
 		}
 	}
-	r_submit()
+	r_end()
 }
 
 push_quad :: proc(dst, src: mu.Rect, color: mu.Color) #no_bounds_check {
-	r := &state.renderer
-
-	if (r.buf_idx == BUFFER_SIZE) {
+	r := &state.renderer.ui
+	if r.buf_idx == BUFFER_SIZE {
 		r_full_flush()
 	}
-
 	textvert_idx := r.buf_idx * 8
 	color_idx := r.buf_idx * 16
 	element_idx := u32(r.buf_idx * 4)
 	index_idx := r.buf_idx * 6
-
 	r.buf_idx += 1
 
 	x := f32(src.x) / mu.DEFAULT_ATLAS_WIDTH
@@ -454,16 +289,14 @@ r_draw_icon :: proc(id: mu.Icon, rect: mu.Rect, color: mu.Color) {
 }
 
 r_set_clip_rect :: proc(rect: mu.Rect) {
-	r := &state.renderer
+	r := &state.renderer.ui
 	r_flush()
-
-	x := min(u32(rect.x), state.config.width)
-	y := min(u32(rect.y), state.config.height)
-	w := min(u32(rect.w), state.config.width - x)
-	h := min(u32(rect.h), state.config.height - y)
-	wgpu.RenderPassEncoderSetScissorRect(r.curr_pass, x, y, w, h)
+	x := min(u32(max(rect.x, 0)), state.renderer.extent.width)
+	y := min(u32(max(rect.y, 0)), state.renderer.extent.height)
+	w := min(u32(max(rect.w, 0)), state.renderer.extent.width - x)
+	h := min(u32(max(rect.h, 0)), state.renderer.extent.height - y)
+	vulkan_set_scissor(r.current_command, x, y, w, h)
 }
-
 
 demo_windows :: proc(ctx: ^mu.Context) {
 	@(static) opts := mu.Options{.NO_CLOSE}
@@ -481,9 +314,9 @@ demo_windows :: proc(ctx: ^mu.Context) {
 		if .ACTIVE in mu.header(ctx, "Window Options") {
 			mu.layout_row(ctx, {120, 120, 120}, 0)
 			for opt in mu.Opt {
-				state := opt in opts
-				if .CHANGE in mu.checkbox(ctx, fmt.tprintf("%v", opt), &state) {
-					if state {
+				opt_enabled := opt in opts
+				if .CHANGE in mu.checkbox(ctx, fmt.tprintf("%v", opt), &opt_enabled) {
+					if opt_enabled {
 						opts += {opt}
 					} else {
 						opts -= {opt}
@@ -527,7 +360,6 @@ demo_windows :: proc(ctx: ^mu.Context) {
 				mu.checkbox(ctx, "Checkbox 1", &checks[0])
 				mu.checkbox(ctx, "Checkbox 2", &checks[1])
 				mu.checkbox(ctx, "Checkbox 3", &checks[2])
-
 			}
 			mu.layout_end_column(ctx)
 
@@ -566,7 +398,6 @@ demo_windows :: proc(ctx: ^mu.Context) {
 		}
 	}
 
-
 	if mu.window(ctx, "Style Window", {350, 250, 300, 240}) {
 		@(static) colors := [mu.Color_Type]string {
 			.TEXT         = "text",
@@ -601,7 +432,6 @@ demo_windows :: proc(ctx: ^mu.Context) {
 
 u8_slider :: proc(ctx: ^mu.Context, val: ^u8, lo, hi: u8) -> (res: mu.Result_Set) {
 	mu.push_id(ctx, uintptr(val))
-
 	@(static) tmp: mu.Real
 	tmp = mu.Real(val^)
 	res = mu.slider(ctx, &tmp, mu.Real(lo), mu.Real(hi), 0, "%.0f", {.ALIGN_CENTER})

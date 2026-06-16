@@ -27,7 +27,7 @@ compile :: proc(srcdir: string, destdir: string) {
 
 
 compile_file :: proc(filename: string, input_file: string, output_dir: string) {
-	shader_name := strings.join({output_dir, filename, ".wgsl"}, "")
+	shader_name := strings.join({output_dir, filename, ".spirv"}, "")
 	defer delete(shader_name)
 	reflection_name := strings.join({output_dir, filename, ".json"}, "")
 	defer delete(reflection_name)
@@ -35,7 +35,9 @@ compile_file :: proc(filename: string, input_file: string, output_dir: string) {
 		command = []string {
 			"slangc",
 			"-target",
-			"wgsl",
+			"spirv",
+			"-profile",
+			"glsl_460",
 			"-reflection-json",
 			reflection_name,
 			"-o",
@@ -76,4 +78,21 @@ load_shader :: proc(shader_name: string) -> string {
 	}
 	cloned := strings.clone_from_bytes(code)
 	return cloned
+}
+
+load_shader_bytes :: proc(shader_name: string) -> []byte {
+	type := "wgsl"
+	shader_name := shader_name
+	if strings.ends_with(shader_name, ".spirv") {
+		type = "spirv"
+		shader_name = strings.trim_suffix(shader_name, ".spirv")
+	}
+	comp := strings.join({"shaders/", shader_name, ".", type}, "")
+	defer delete(comp)
+	fmt.printfln("Loading shader: %s", comp)
+	code, err := os.read_entire_file(comp, context.allocator)
+	if err != nil {
+		fmt.panicf("Failed to read shader file: %s\n", err)
+	}
+	return code
 }
