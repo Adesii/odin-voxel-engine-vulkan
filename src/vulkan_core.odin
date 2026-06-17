@@ -1,5 +1,6 @@
 package main
 
+import vma "../vendor/odin-vma"
 import intrinsics "base:intrinsics"
 import "base:runtime"
 import "core:fmt"
@@ -8,6 +9,12 @@ import vk "vendor:vulkan"
 
 MAX_FRAMES_IN_FLIGHT :: 2
 VALIDATION_LAYER :: "VK_LAYER_KHRONOS_validation"
+
+
+vulkan_buffer :: struct {
+	buffer:     vk.Buffer,
+	allocation: vma.Allocation,
+}
 
 swapchain_support :: struct {
 	capabilities:  vk.SurfaceCapabilitiesKHR,
@@ -18,6 +25,8 @@ swapchain_support :: struct {
 vulkan_renderer :: struct {
 	instance:             vk.Instance,
 	debug_messenger:      vk.DebugUtilsMessengerEXT,
+	allocator_vma:        vma.Allocator,
+	vulkan_functions:     vma.VulkanFunctions,
 	surface:              vk.SurfaceKHR,
 	physical_device:      vk.PhysicalDevice,
 	device:               vk.Device,
@@ -147,50 +156,61 @@ vulkan_create_buffer :: proc(
 		usage       = usage,
 		sharingMode = .EXCLUSIVE,
 	}
-	b: vulkan_buffer
-	b.size = vk.DeviceSize(size)
-	VK_CHECK(vk.CreateBuffer(r.device, &buffer_info, nil, &b.buffer), "vkCreateBuffer")
-	requirements: vk.MemoryRequirements
-	vk.GetBufferMemoryRequirements(r.device, b.buffer, &requirements)
-	alloc_info := vk.MemoryAllocateInfo {
-		sType           = .MEMORY_ALLOCATE_INFO,
-		allocationSize  = requirements.size,
-		memoryTypeIndex = vulkan_find_memory_type(r, requirements.memoryTypeBits, properties),
+	// 1. Properly set VMA allocation flags based on your passed properties
+	alloc_flags: vma.AllocationCreateFlags = {}
+	if .HOST_VISIBLE in properties {
+		// Tells VMA to pick a CPU-visible memory type and maps it automatically
+		alloc_flags += {.HOST_ACCESS_SEQUENTIAL_WRITE, .MAPPED}
 	}
-	VK_CHECK(vk.AllocateMemory(r.device, &alloc_info, nil, &b.memory), "vkAllocateMemory(buffer)")
-	VK_CHECK(vk.BindBufferMemory(r.device, b.buffer, b.memory, 0), "vkBindBufferMemory")
+
+	// 2. Ensure ALL fields of the C-struct are zero-initialized or explicitly set
+	alloc_info := vma.AllocationCreateInfo {
+		flags         = alloc_flags,
+		usage         = .AUTO,
+		requiredFlags = properties, // Enforces the driver to use HOST_VISIBLE/HOST_COHERENT
+	}
+
+	b: vulkan_buffer
+	b.allocation = vma.Allocation{}
+	b.buffer = vk.Buffer{}
+	// fmt.println("Creating buffer of size %d", size)
+	// fmt.println("Buffer usage: %v", usage)
+	// fmt.println("Memory properties: %v", properties)
+	VK_CHECK(
+		vma.CreateBuffer(
+			r.allocator_vma,
+			&buffer_info,
+			&alloc_info,
+			&b.buffer,
+			&b.allocation,
+			nil,
+		),
+		"vmaCreateBuffer",
+	)
 	return b
 }
 
-vulkan_destroy_buffer :: proc(device: vk.Device, buffer: ^vulkan_buffer) {
+vulkan_destroy_buffer :: proc(r: ^vulkan_renderer, buffer: ^vulkan_buffer) {
 	if buffer.buffer != {} {
-		vk.DestroyBuffer(device, buffer.buffer, nil)
+		vk.DestroyBuffer(r.device, buffer.buffer, nil)
 		buffer.buffer = {}
 	}
-	if buffer.memory != {} {
-		vk.FreeMemory(device, buffer.memory, nil)
-		buffer.memory = {}
-	}
+	vma.DestroyBuffer(r.allocator_vma, buffer.buffer, buffer.allocation)
 }
 
-vulkan_write_buffer :: proc(buffer: ^vulkan_buffer, data: rawptr, size: int, offset: int) {
+vulkan_write_buffer :: proc(
+	r: ^vulkan_renderer,
+	buffer: ^vulkan_buffer,
+	data: rawptr,
+	size: int,
+) { 	//TODO: Figure out if this actually does anything
 	if size <= 0 {
 		return
 	}
 	mapped: rawptr
-	VK_CHECK(
-		vk.MapMemory(
-			state.renderer.device,
-			buffer.memory,
-			vk.DeviceSize(offset),
-			vk.DeviceSize(size),
-			{},
-			&mapped,
-		),
-		"vkMapMemory",
-	)
+	VK_CHECK(vma.MapMemory(r.allocator_vma, buffer.allocation, &mapped), "vkMapMemory")
 	intrinsics.mem_copy_non_overlapping(mapped, data, size)
-	vk.UnmapMemory(state.renderer.device, buffer.memory)
+	vma.UnmapMemory(r.allocator_vma, buffer.allocation)
 }
 
 vulkan_set_scissor :: proc(command_buffer: vk.CommandBuffer, x, y, w, h: u32) {
@@ -209,7 +229,7 @@ vulkan_create_image :: proc(
 	properties: vk.MemoryPropertyFlags,
 ) -> (
 	vk.Image,
-	vk.DeviceMemory,
+	vma.Allocation,
 ) {
 	image_info := vk.ImageCreateInfo {
 		sType         = .IMAGE_CREATE_INFO,
@@ -225,18 +245,26 @@ vulkan_create_image :: proc(
 		initialLayout = .UNDEFINED,
 	}
 	image: vk.Image
-	memory: vk.DeviceMemory
-	VK_CHECK(vk.CreateImage(r.device, &image_info, nil, &image), "vkCreateImage")
-	requirements: vk.MemoryRequirements
-	vk.GetImageMemoryRequirements(r.device, image, &requirements)
-	alloc_info := vk.MemoryAllocateInfo {
-		sType           = .MEMORY_ALLOCATE_INFO,
-		allocationSize  = requirements.size,
-		memoryTypeIndex = vulkan_find_memory_type(r, requirements.memoryTypeBits, properties),
+
+	// 1. Properly set VMA allocation flags based on your passed properties
+	alloc_flags: vma.AllocationCreateFlags = {}
+	if .HOST_VISIBLE in properties {
+		// Tells VMA to pick a CPU-visible memory type and maps it automatically
+		alloc_flags += {.HOST_ACCESS_SEQUENTIAL_WRITE, .MAPPED}
 	}
-	VK_CHECK(vk.AllocateMemory(r.device, &alloc_info, nil, &memory), "vkAllocateMemory(image)")
-	VK_CHECK(vk.BindImageMemory(r.device, image, memory, 0), "vkBindImageMemory")
-	return image, memory
+
+	// 2. Ensure ALL fields of the C-struct are zero-initialized or explicitly set
+	alloc_info := vma.AllocationCreateInfo {
+		flags         = alloc_flags,
+		usage         = .AUTO,
+		requiredFlags = properties, // Enforces the driver to use HOST_VISIBLE/HOST_COHERENT
+	}
+	vma_allocation: vma.Allocation
+	VK_CHECK(
+		vma.CreateImage(r.allocator_vma, &image_info, &alloc_info, &image, &vma_allocation, nil),
+		"vmaCreateImage",
+	)
+	return image, vma_allocation
 }
 
 vulkan_begin_single_use_commands :: proc(r: ^vulkan_renderer) -> vk.CommandBuffer {

@@ -1,5 +1,6 @@
 package main
 
+import vma "../vendor/odin-vma"
 import "core:fmt"
 import sdl "vendor:sdl3"
 import vk "vendor:vulkan"
@@ -24,9 +25,29 @@ vulkan_init :: proc() {
 	vk.load_proc_addresses_device(r.device)
 	vulkan_create_command_pool(r)
 	vulkan_create_sync_objects(r)
+	vulkan_initialize_vma(r)
 	vulkan_init_ui(r)
 	vulkan_create_swapchain_objects(r)
 	rebuild_shaders()
+}
+
+vulkan_initialize_vma :: proc(r: ^vulkan_renderer) {
+	r.vulkan_functions = vma.create_vulkan_functions()
+
+	create_info_vma := vma.AllocatorCreateInfo {
+		vulkanApiVersion = vk.API_VERSION_1_4,
+		physicalDevice   = r.physical_device,
+		device           = r.device,
+		instance         = r.instance,
+		pVulkanFunctions = &r.vulkan_functions,
+		flags            = {
+			.EXTERNALLY_SYNCHRONIZED,
+			.KHR_DEDICATED_ALLOCATION,
+			.KHR_BIND_MEMORY2,
+			.EXT_MEMORY_BUDGET,
+		},
+	}
+	VK_CHECK(vma.CreateAllocator(&create_info_vma, &r.allocator_vma), "vmaCreateAllocator")
 }
 
 vulkan_create_instance :: proc(r: ^vulkan_renderer) {
@@ -75,6 +96,7 @@ vulkan_create_instance :: proc(r: ^vulkan_renderer) {
 		ppEnabledExtensionNames = raw_data(extensions),
 	}
 	VK_CHECK(vk.CreateInstance(&create_info, nil, &r.instance), "vkCreateInstance")
+
 }
 
 vulkan_create_surface :: proc(r: ^vulkan_renderer) {

@@ -1,5 +1,6 @@
 package main
 
+import vma "../vendor/odin-vma"
 import compiler "utils"
 import mu "vendor:microui"
 import vk "vendor:vulkan"
@@ -48,14 +49,14 @@ vulkan_create_ui_texture :: proc(r: ^vulkan_renderer) {
 		{.TRANSFER_SRC},
 		{.HOST_VISIBLE, .HOST_COHERENT},
 	)
-	defer vulkan_destroy_buffer(r.device, &staging)
+	defer vulkan_destroy_buffer(r, &staging)
 	vulkan_write_buffer(
+		r,
 		&staging,
 		raw_data(mu.default_atlas_alpha[:]),
 		len(mu.default_atlas_alpha),
-		0,
 	)
-	ui.texture_image, ui.texture_memory = vulkan_create_image(
+	ui.texture_image, ui.texture_allocation = vulkan_create_image(
 		r,
 		mu.DEFAULT_ATLAS_WIDTH,
 		mu.DEFAULT_ATLAS_HEIGHT,
@@ -165,10 +166,12 @@ vulkan_create_ui_descriptors :: proc(r: ^vulkan_renderer) {
 		imageView   = ui.texture_view,
 		imageLayout = .SHADER_READ_ONLY_OPTIMAL,
 	}
+	allocation_info: vma.AllocationInfo
+	vma.GetAllocationInfo(r.allocator_vma, ui.const_buffer.allocation, &allocation_info)
 	buffer_info := vk.DescriptorBufferInfo {
 		buffer = ui.const_buffer.buffer,
 		offset = 0,
-		range  = ui.const_buffer.size,
+		range  = allocation_info.size,
 	}
 	writes := [3]vk.WriteDescriptorSet {
 		{
@@ -450,14 +453,12 @@ vulkan_shutdown_ui :: proc(r: ^vulkan_renderer) {
 		vk.DestroyImageView(r.device, ui.texture_view, nil)
 	}
 	if ui.texture_image != {} {
-		vk.DestroyImage(r.device, ui.texture_image, nil)
+		vma.DestroyImage(r.allocator_vma, ui.texture_image, ui.texture_allocation)
 	}
-	if ui.texture_memory != {} {
-		vk.FreeMemory(r.device, ui.texture_memory, nil)
-	}
-	vulkan_destroy_buffer(r.device, &ui.vertex_buffer)
-	vulkan_destroy_buffer(r.device, &ui.tex_buffer)
-	vulkan_destroy_buffer(r.device, &ui.color_buffer)
-	vulkan_destroy_buffer(r.device, &ui.index_buffer)
-	vulkan_destroy_buffer(r.device, &ui.const_buffer)
+	vulkan_destroy_buffer(r, &ui.vertex_buffer)
+	vulkan_destroy_buffer(r, &ui.tex_buffer)
+	vulkan_destroy_buffer(r, &ui.color_buffer)
+	vulkan_destroy_buffer(r, &ui.index_buffer)
+	vulkan_destroy_buffer(r, &ui.const_buffer)
+	vma.DestroyAllocator(r.allocator_vma)
 }

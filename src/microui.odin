@@ -5,21 +5,16 @@ import intr "base:intrinsics"
 import "core:fmt"
 import "core:math/linalg"
 
+import vma "../vendor/odin-vma"
 import mu "vendor:microui"
 import sdl "vendor:sdl3"
 import vk "vendor:vulkan"
 
 BUFFER_SIZE :: 16384
 
-vulkan_buffer :: struct {
-	buffer: vk.Buffer,
-	memory: vk.DeviceMemory,
-	size:   vk.DeviceSize,
-}
-
 microui_ctx :: struct {
 	texture_image:       vk.Image,
-	texture_memory:      vk.DeviceMemory,
+	texture_allocation:  vma.Allocation,
 	texture_view:        vk.ImageView,
 	sampler:             vk.Sampler,
 	descriptor_layout:   vk.DescriptorSetLayout,
@@ -92,10 +87,10 @@ r_write_consts :: proc() {
 	fw, fh := f32(width), f32(height)
 	transform := linalg.matrix_ortho3d(0, fw, 0, fh, -1, 1) * linalg.matrix4_scale(dpi)
 	vulkan_write_buffer(
+		&state.renderer,
 		&r.const_buffer,
 		raw_data([]matrix[4, 4]f32{transform}),
 		size_of(transform),
-		0,
 	)
 }
 
@@ -147,23 +142,28 @@ r_submit :: proc() {
 	r_flush()
 	r_write_consts()
 	vulkan_write_buffer(
+		&state.renderer,
 		&r.vertex_buffer,
 		raw_data(r.vert_buf[:]),
 		int(r.buf_idx * 8 * size_of(f32)),
-		0,
 	)
 	vulkan_write_buffer(
+		&state.renderer,
 		&r.tex_buffer,
 		raw_data(r.tex_buf[:]),
 		int(r.buf_idx * 8 * size_of(f32)),
-		0,
 	)
-	vulkan_write_buffer(&r.color_buffer, raw_data(r.color_buf[:]), int(r.buf_idx * 16), 0)
 	vulkan_write_buffer(
+		&state.renderer,
+		&r.color_buffer,
+		raw_data(r.color_buf[:]),
+		int(r.buf_idx * 16),
+	)
+	vulkan_write_buffer(
+		&state.renderer,
 		&r.index_buffer,
 		raw_data(r.index_buf[:]),
 		int(r.buf_idx * 6 * size_of(u32)),
-		0,
 	)
 }
 
