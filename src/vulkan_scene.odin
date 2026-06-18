@@ -2,6 +2,7 @@ package main
 
 import "core:fmt"
 import compiler "utils"
+import "utils"
 import sdl "vendor:sdl3"
 import vk "vendor:vulkan"
 
@@ -27,6 +28,12 @@ rebuild_shaders :: proc() {
 	r := &state.renderer
 	fmt.printfln("Reloading shaders...")
 	compiler.compile("shader_src/", "shaders/")
+
+	shader_path := compiler.get_shader_path("default.slang")
+	defer delete(shader_path)
+	utils.add_file_watcher(shader_path, proc(filepath: string) {rebuild_shaders()})
+
+	_ = vk.DeviceWaitIdle(r.device)
 
 	if r.pipeline != {} {
 		vk.DestroyPipeline(r.device, r.pipeline, nil)

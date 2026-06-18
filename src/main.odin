@@ -3,6 +3,7 @@ package main
 import "base:runtime"
 import "core:fmt"
 import "core:mem"
+import "utils"
 import mu "vendor:microui"
 import sdl "vendor:sdl3"
 
@@ -92,10 +93,16 @@ run_game :: proc() {
 	now := sdl.GetPerformanceCounter()
 	last: u64
 	dt: f32
+
+	frame_count: u64
+	last_time: f64
+	last_fps: f64 = 0
+
 	main_loop: for {
 		last = now
 		now = sdl.GetPerformanceCounter()
 		dt = f32((now - last) * 1000) / f32(sdl.GetPerformanceFrequency())
+		last_time += f64(dt)
 
 		e: sdl.Event
 		for sdl.PollEvent(&e) {
@@ -147,8 +154,29 @@ run_game :: proc() {
 				mu.input_scroll(&state.mu_ctx, auto_cast e.wheel.x, auto_cast e.wheel.y)
 			}
 		}
+		utils.check_file_watchers()
 
-		frame(dt)
+		context = state.ctx
+		mu.begin(&state.mu_ctx)
+		if last_time >= 1000 {
+			fps := 1000.0 * f64(frame_count) / last_time
+			last_fps = fps
+			last_time = 0
+			frame_count = 0
+		}
+		mu.begin_window(
+			&state.mu_ctx,
+			"FPS",
+			{h = 100, w = 100, x = 0, y = 0},
+			mu.Options{.NO_SCROLL, .NO_INTERACT, .NO_FRAME, .NO_RESIZE, .NO_TITLE, .NO_CLOSE},
+		)
+		// fmt.printfln("FPS: 	%v, %v, %v", frame_count, now, last_time)
+		mu.text(&state.mu_ctx, fmt.tprintf("FPS: %.2f", last_fps))
+		mu.end_window(&state.mu_ctx)
+		demo_windows(&state.mu_ctx)
+		mu.end(&state.mu_ctx)
+		vulkan_frame()
+		frame_count += 1
 	}
 
 	finish()
@@ -156,15 +184,7 @@ run_game :: proc() {
 	sdl.Quit()
 }
 
-frame :: proc(dt: f32) {
-	context = state.ctx
-	_ = dt
-	mu.begin(&state.mu_ctx)
-	demo_windows(&state.mu_ctx)
-	mu.end(&state.mu_ctx)
-	vulkan_frame()
-}
-
 finish :: proc() {
 	vulkan_finish()
+	utils.destroy_file_watchers()
 }
