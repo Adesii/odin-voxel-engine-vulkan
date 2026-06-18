@@ -2,7 +2,9 @@ package utils
 
 import "core:fmt"
 import "core:os"
+import "core:path/filepath"
 import "core:strings"
+
 compile :: proc(srcdir: string, destdir: string) {
 	fmt.printfln("Starting Compilation...")
 
@@ -21,10 +23,34 @@ compile :: proc(srcdir: string, destdir: string) {
 		if os.is_dir(file.fullpath) {
 			continue
 		}
-		fmt.printfln("Found File: %s", file.fullpath)
 		thing := strings.split(file.name, ".")
 		defer delete(thing)
-		compile_file(thing[0], file.fullpath, destdir)
+		// Check if shader file is newer than the compiled version and only then compile
+		if filepath.ext(file.name) != ".slang" {
+			fmt.printfln("Skipping non-slang file: %s", file.name)
+			continue
+		}
+		compiled_name := strings.join({destdir, thing[0], ".spirv"}, "")
+		defer delete(compiled_name)
+		if !os.exists(compiled_name) {
+			fmt.printfln("Compiled shader does not exist, compiling: %s", file.name)
+			compile_file(thing[0], file.fullpath, destdir)
+			continue
+		}
+		src_mod_time := file.modification_time
+		dest_mod_time, err := os.modification_time_by_path(compiled_name)
+		if err != nil {
+			fmt.printfln(
+				"Failed to get modification time for destination file, recompiling: %s",
+				err,
+			)
+			compile_file(thing[0], file.fullpath, destdir)
+			continue
+		}
+		if src_mod_time._nsec > dest_mod_time._nsec {
+			fmt.printfln("Source file is newer than destination file, recompiling: %s", file.name)
+			compile_file(thing[0], file.fullpath, destdir)
+		}
 	}
 }
 
