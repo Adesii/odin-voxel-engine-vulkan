@@ -2,7 +2,7 @@ package vkapi
 
 import vk "vendor:vulkan"
 
-vulkan_choose_surface_format :: proc(formats: []vk.SurfaceFormatKHR) -> vk.SurfaceFormatKHR {
+choose_surface_format :: proc(formats: []vk.SurfaceFormatKHR) -> vk.SurfaceFormatKHR {
 	for format in formats {
 		if format.format == .B8G8R8A8_UNORM && format.colorSpace == .SRGB_NONLINEAR {
 			return format
@@ -11,7 +11,7 @@ vulkan_choose_surface_format :: proc(formats: []vk.SurfaceFormatKHR) -> vk.Surfa
 	return formats[0]
 }
 
-vulkan_choose_present_mode :: proc(present_modes: []vk.PresentModeKHR) -> vk.PresentModeKHR {
+choose_present_mode :: proc(present_modes: []vk.PresentModeKHR) -> vk.PresentModeKHR {
 	for mode in present_modes {
 		if mode == .MAILBOX {
 			return mode
@@ -20,7 +20,7 @@ vulkan_choose_present_mode :: proc(present_modes: []vk.PresentModeKHR) -> vk.Pre
 	return .FIFO
 }
 
-vulkan_choose_extent :: proc(capabilities: vk.SurfaceCapabilitiesKHR) -> vk.Extent2D {
+choose_extent :: proc(capabilities: vk.SurfaceCapabilitiesKHR) -> vk.Extent2D {
 	if capabilities.currentExtent.width != ~u32(0) {
 		return capabilities.currentExtent
 	}
@@ -44,15 +44,15 @@ vulkan_choose_extent :: proc(capabilities: vk.SurfaceCapabilitiesKHR) -> vk.Exte
 	return extent
 }
 
-vulkan_create_swapchain_objects :: proc(r: ^vulkan_renderer) {
-	support := vulkan_query_swapchain_support(r, r.physical_device)
+create_swapchain_objects :: proc(r: ^vulkan_renderer) {
+	support := query_swapchain_support(r, r.physical_device)
 	defer {
 		delete(support.formats)
 		delete(support.present_modes)
 	}
-	r.surface_format = vulkan_choose_surface_format(support.formats)
-	r.present_mode = vulkan_choose_present_mode(support.present_modes)
-	r.extent = vulkan_choose_extent(support.capabilities)
+	r.surface_format = choose_surface_format(support.formats)
+	r.present_mode = choose_present_mode(support.present_modes)
+	r.extent = choose_extent(support.capabilities)
 
 	image_count := support.capabilities.minImageCount + 1
 	if support.capabilities.maxImageCount > 0 && image_count > support.capabilities.maxImageCount {
@@ -134,15 +134,15 @@ vulkan_create_swapchain_objects :: proc(r: ^vulkan_renderer) {
 		)
 	}
 
-	vulkan_create_render_pass(r)
-	vulkan_create_framebuffers(r)
-	vulkan_create_ui_swapchain_objects(r)
+	create_render_pass(r)
+	create_framebuffers(r)
+	create_ui_swapchain_objects(r)
 	if r.command_buffers[0] == {} {
-		vulkan_allocate_command_buffers(r)
+		allocate_command_buffers(r)
 	}
 }
 
-vulkan_create_render_pass :: proc(r: ^vulkan_renderer) {
+create_render_pass :: proc(r: ^vulkan_renderer) {
 	attachment := vk.AttachmentDescription {
 		format         = r.surface_format.format,
 		samples        = {._1},
@@ -185,7 +185,7 @@ vulkan_create_render_pass :: proc(r: ^vulkan_renderer) {
 	)
 }
 
-vulkan_create_framebuffers :: proc(r: ^vulkan_renderer) {
+create_framebuffers :: proc(r: ^vulkan_renderer) {
 	r.framebuffers = make([]vk.Framebuffer, len(r.swapchain_views), context.allocator)
 	for view, i in r.swapchain_views {
 		attachments := [1]vk.ImageView{view}
@@ -205,7 +205,7 @@ vulkan_create_framebuffers :: proc(r: ^vulkan_renderer) {
 	}
 }
 
-vulkan_destroy_swapchain_objects :: proc(r: ^vulkan_renderer) {
+destroy_swapchain_objects :: proc(r: ^vulkan_renderer) {
 	for framebuffer in r.framebuffers {
 		if framebuffer != {} {
 			vk.DestroyFramebuffer(r.device, framebuffer, nil)
@@ -213,7 +213,7 @@ vulkan_destroy_swapchain_objects :: proc(r: ^vulkan_renderer) {
 	}
 	delete(r.framebuffers)
 	r.framebuffers = nil
-	vulkan_destroy_ui_swapchain_objects(r)
+	destroy_ui_swapchain_objects(r)
 
 	if r.fullscreen.pipeline != {} {
 		vk.DestroyPipeline(r.device, r.fullscreen.pipeline, nil)
@@ -251,18 +251,18 @@ vulkan_destroy_swapchain_objects :: proc(r: ^vulkan_renderer) {
 	}
 }
 
-vulkan_recreate_swapchain :: proc(r: ^vulkan_renderer) {
+recreate_swapchain :: proc(r: ^vulkan_renderer) {
 	width, height := get_window_size()
 	if width == 0 || height == 0 {
 		return
 	}
 	VK_CHECK(vk.DeviceWaitIdle(r.device), "vkDeviceWaitIdle")
-	vulkan_destroy_swapchain_objects(r)
-	vulkan_create_swapchain_objects(r)
-	vulkan_create_pipeline(r)
-	vulkan_rebuild_ui_pipeline(r, false)
+	destroy_swapchain_objects(r)
+	create_swapchain_objects(r)
+	create_pipeline(r)
+	rebuild_ui_pipeline(r, false)
 }
 
-vulkan_resize :: proc() {
+resize :: proc() {
 	renderer.framebuffer_resized = true
 }

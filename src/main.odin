@@ -83,7 +83,7 @@ main :: proc() {
 	vulkan.renderer.ui.ui_render = r_render
 	vulkan.renderer.voxel.render = vulkan_run
 	append(&vulkan.renderer.init_proc, vulkan_init_voxel_buffers)
-	vulkan.vulkan_init(state.window)
+	vulkan.init(state.window)
 	run_game()
 }
 
@@ -128,7 +128,7 @@ run_game :: proc() {
 			case .QUIT:
 				break main_loop
 			case .WINDOW_RESIZED, .WINDOW_PIXEL_SIZE_CHANGED:
-				vulkan.vulkan_resize()
+				vulkan.resize()
 			case .KEY_DOWN:
 				if e.key.key == sdl.K_ESCAPE {
 					break main_loop
@@ -197,7 +197,7 @@ run_game :: proc() {
 		// demo_windows(&state.mu_ctx)
 		mu.end(&state.mu_ctx)
 		update_camera(dt)
-		vulkan.vulkan_frame()
+		vulkan.frame()
 		frame_count += 1
 	}
 
@@ -284,6 +284,6 @@ update_camera :: proc(dt: f32) {
 }
 
 finish :: proc() {
-	vulkan.vulkan_finish()
+	vulkan.finish()
 	utils.destroy_file_watchers()
 }

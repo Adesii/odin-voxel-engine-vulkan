@@ -6,7 +6,7 @@ import "core:fmt"
 import sdl "vendor:sdl3"
 import vk "vendor:vulkan"
 
-vulkan_init :: proc(window: ^sdl.Window) {
+init :: proc(window: ^sdl.Window) {
 	// context = runtime.default_context()
 	renderer.window = window
 	if !sdl.Vulkan_LoadLibrary(nil) {
@@ -18,26 +18,26 @@ vulkan_init :: proc(window: ^sdl.Window) {
 	}
 	vk.load_proc_addresses_global(cast(rawptr)vk_proc)
 	r := &renderer
-	vulkan_create_instance(r)
+	create_instance(r)
 	vk.load_proc_addresses_instance(r.instance)
-	vulkan_create_debug_messenger(r)
-	vulkan_create_surface(r, window)
-	vulkan_pick_physical_device(r)
-	vulkan_create_device(r)
-	vulkan_create_descriptor_pool(r)
+	create_debug_messenger(r)
+	create_surface(r, window)
+	pick_physical_device(r)
+	create_device(r)
+	create_descriptor_pool(r)
 	vk.load_proc_addresses_device(r.device)
-	vulkan_create_command_pool(r)
-	vulkan_create_sync_objects(r)
-	vulkan_initialize_vma(r)
-	vulkan_init_ui(r)
-	vulkan_create_swapchain_objects(r)
+	create_command_pool(r)
+	create_sync_objects(r)
+	initialize_vma(r)
+	init_ui(r)
+	create_swapchain_objects(r)
 	rebuild_shaders()
 	for inits in r.init_proc {
 		inits(r)
 	}
 }
 
-vulkan_initialize_vma :: proc(r: ^vulkan_renderer) {
+initialize_vma :: proc(r: ^vulkan_renderer) {
 	r.vulkan_functions = vma.create_vulkan_functions()
 
 	create_info_vma := vma.AllocatorCreateInfo {
@@ -56,7 +56,7 @@ vulkan_initialize_vma :: proc(r: ^vulkan_renderer) {
 	VK_CHECK(vma.CreateAllocator(&create_info_vma, &r.allocator_vma), "vmaCreateAllocator")
 }
 
-vulkan_create_instance :: proc(r: ^vulkan_renderer) {
+create_instance :: proc(r: ^vulkan_renderer) {
 	ext_count: sdl.Uint32
 	ext_ptr := sdl.Vulkan_GetInstanceExtensions(&ext_count)
 	if ext_ptr == nil || ext_count == 0 {
@@ -73,7 +73,7 @@ vulkan_create_instance :: proc(r: ^vulkan_renderer) {
 	}
 
 	enabled_layers: []cstring
-	if validation_enabled() && vulkan_has_validation_layer() {
+	if validation_enabled() && has_validation_layer() {
 		enabled_layers = []cstring{VALIDATION_LAYER}
 	} else if validation_enabled() {
 		fmt.eprintf(
@@ -112,13 +112,13 @@ vulkan_create_instance :: proc(r: ^vulkan_renderer) {
 
 }
 
-vulkan_create_surface :: proc(r: ^vulkan_renderer, window: ^sdl.Window) {
+create_surface :: proc(r: ^vulkan_renderer, window: ^sdl.Window) {
 	if !sdl.Vulkan_CreateSurface(window, r.instance, nil, &r.surface) {
 		fmt.panicf("Failed to create Vulkan surface: %v", sdl.GetError())
 	}
 }
 
-vulkan_pick_physical_device :: proc(r: ^vulkan_renderer) {
+pick_physical_device :: proc(r: ^vulkan_renderer) {
 	device_count: u32
 	VK_CHECK(
 		vk.EnumeratePhysicalDevices(r.instance, &device_count, nil),
@@ -133,7 +133,7 @@ vulkan_pick_physical_device :: proc(r: ^vulkan_renderer) {
 		"vkEnumeratePhysicalDevices",
 	)
 	for device in devices {
-		graphics_index, present_index, ok := vulkan_find_queue_families(r, device)
+		graphics_index, present_index, ok := find_queue_families(r, device)
 		if ok {
 			r.physical_device = device
 			r.graphics_queue_index = graphics_index
@@ -146,14 +146,7 @@ vulkan_pick_physical_device :: proc(r: ^vulkan_renderer) {
 	fmt.panicf("Failed to find a suitable Vulkan physical device")
 }
 
-vulkan_find_queue_families :: proc(
-	r: ^vulkan_renderer,
-	device: vk.PhysicalDevice,
-) -> (
-	u32,
-	u32,
-	bool,
-) {
+find_queue_families :: proc(r: ^vulkan_renderer, device: vk.PhysicalDevice) -> (u32, u32, bool) {
 	queue_family_count: u32
 	vk.GetPhysicalDeviceQueueFamilyProperties(device, &queue_family_count, nil)
 	if queue_family_count == 0 {
@@ -194,7 +187,7 @@ vulkan_find_queue_families :: proc(
 		return 0, 0, false
 	}
 
-	support := vulkan_query_swapchain_support(r, device)
+	support := query_swapchain_support(r, device)
 	defer {
 		delete(support.formats)
 		delete(support.present_modes)
@@ -204,7 +197,7 @@ vulkan_find_queue_families :: proc(
 		len(support.formats) > 0 && len(support.present_modes) > 0
 }
 
-vulkan_query_swapchain_support :: proc(
+query_swapchain_support :: proc(
 	r: ^vulkan_renderer,
 	device: vk.PhysicalDevice,
 ) -> swapchain_support {
@@ -254,7 +247,7 @@ vulkan_query_swapchain_support :: proc(
 	return support
 }
 
-vulkan_create_descriptor_pool :: proc(r: ^vulkan_renderer) {
+create_descriptor_pool :: proc(r: ^vulkan_renderer) {
 	pool_sizes := [4]vk.DescriptorPoolSize {
 		{
 			type            = .UNIFORM_BUFFER,
@@ -275,7 +268,7 @@ vulkan_create_descriptor_pool :: proc(r: ^vulkan_renderer) {
 		"vkCreateDescriptorPool",
 	)
 }
-vulkan_create_device :: proc(r: ^vulkan_renderer) {
+create_device :: proc(r: ^vulkan_renderer) {
 	queue_priority := f32(1)
 	queue_infos: [2]vk.DeviceQueueCreateInfo
 	queue_info_count := 1
@@ -333,7 +326,7 @@ vulkan_create_device :: proc(r: ^vulkan_renderer) {
 	vk.GetDeviceQueue(r.device, r.present_queue_index, 0, &r.present_queue)
 }
 
-vulkan_create_command_pool :: proc(r: ^vulkan_renderer) {
+create_command_pool :: proc(r: ^vulkan_renderer) {
 	create_info := vk.CommandPoolCreateInfo {
 		sType            = .COMMAND_POOL_CREATE_INFO,
 		flags            = {.RESET_COMMAND_BUFFER},
@@ -345,7 +338,7 @@ vulkan_create_command_pool :: proc(r: ^vulkan_renderer) {
 	)
 }
 
-vulkan_allocate_command_buffers :: proc(r: ^vulkan_renderer) {
+allocate_command_buffers :: proc(r: ^vulkan_renderer) {
 	alloc_info := vk.CommandBufferAllocateInfo {
 		sType              = .COMMAND_BUFFER_ALLOCATE_INFO,
 		commandPool        = r.command_pool,
@@ -358,7 +351,7 @@ vulkan_allocate_command_buffers :: proc(r: ^vulkan_renderer) {
 	)
 }
 
-vulkan_create_sync_objects :: proc(r: ^vulkan_renderer) {
+create_sync_objects :: proc(r: ^vulkan_renderer) {
 	sem_info := vk.SemaphoreCreateInfo {
 		sType = .SEMAPHORE_CREATE_INFO,
 	}

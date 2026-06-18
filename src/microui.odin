@@ -59,7 +59,7 @@ r_write_consts :: proc() {
 	width, height := get_window_size()
 	fw, fh := f32(width), f32(height)
 	transform := linalg.matrix_ortho3d(0, fw, 0, fh, -1, 1) * linalg.matrix4_scale(dpi)
-	vulkan.vulkan_write_buffer(
+	vulkan.write_buffer(
 		&vulkan.renderer,
 		&r.const_buffer,
 		raw_data([]matrix[4, 4]f32{transform}),
@@ -114,25 +114,25 @@ r_submit :: proc() {
 	r := &vulkan.renderer.ui.ui_ctx
 	r_flush()
 	r_write_consts()
-	vulkan.vulkan_write_buffer(
+	vulkan.write_buffer(
 		&vulkan.renderer,
 		&r.vertex_buffer,
 		raw_data(r.vert_buf[:]),
 		int(r.buf_idx * 8 * size_of(f32)),
 	)
-	vulkan.vulkan_write_buffer(
+	vulkan.write_buffer(
 		&vulkan.renderer,
 		&r.tex_buffer,
 		raw_data(r.tex_buf[:]),
 		int(r.buf_idx * 8 * size_of(f32)),
 	)
-	vulkan.vulkan_write_buffer(
+	vulkan.write_buffer(
 		&vulkan.renderer,
 		&r.color_buffer,
 		raw_data(r.color_buf[:]),
 		int(r.buf_idx * 16),
 	)
-	vulkan.vulkan_write_buffer(
+	vulkan.write_buffer(
 		&vulkan.renderer,
 		&r.index_buffer,
 		raw_data(r.index_buf[:]),
@@ -154,7 +154,7 @@ r_begin :: proc(command_buffer: vk.CommandBuffer, framebuffer: vk.Framebuffer) {
 	}
 	vk.CmdBeginRenderPass(command_buffer, &begin_info, .INLINE)
 	r_bind(command_buffer)
-	vulkan.vulkan_set_scissor(
+	vulkan.set_scissor(
 		command_buffer,
 		0,
 		0,
@@ -268,7 +268,7 @@ r_set_clip_rect :: proc(rect: mu.Rect) {
 	y := min(u32(max(rect.y, 0)), vulkan.renderer.extent.height)
 	w := min(u32(max(rect.w, 0)), vulkan.renderer.extent.width - x)
 	h := min(u32(max(rect.h, 0)), vulkan.renderer.extent.height - y)
-	vulkan.vulkan_set_scissor(r.current_command, x, y, w, h)
+	vulkan.set_scissor(r.current_command, x, y, w, h)
 }
 
 demo_windows :: proc(ctx: ^mu.Context) {

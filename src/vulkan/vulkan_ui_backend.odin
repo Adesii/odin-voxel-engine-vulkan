@@ -33,58 +33,53 @@ microui_ctx :: struct {
 	current_command:     vk.CommandBuffer,
 	current_framebuffer: vk.Framebuffer,
 }
-vulkan_init_ui :: proc(r: ^vulkan_renderer) {
+init_ui :: proc(r: ^vulkan_renderer) {
 	ui := &r.ui.ui_ctx
-	ui.vertex_buffer = vulkan_create_buffer(
+	ui.vertex_buffer = create_buffer(
 		r,
 		size_of(ui.vert_buf),
 		{.VERTEX_BUFFER},
 		{.HOST_VISIBLE, .HOST_COHERENT},
 	)
-	ui.tex_buffer = vulkan_create_buffer(
+	ui.tex_buffer = create_buffer(
 		r,
 		size_of(ui.tex_buf),
 		{.VERTEX_BUFFER},
 		{.HOST_VISIBLE, .HOST_COHERENT},
 	)
-	ui.color_buffer = vulkan_create_buffer(
+	ui.color_buffer = create_buffer(
 		r,
 		size_of(ui.color_buf),
 		{.VERTEX_BUFFER},
 		{.HOST_VISIBLE, .HOST_COHERENT},
 	)
-	ui.index_buffer = vulkan_create_buffer(
+	ui.index_buffer = create_buffer(
 		r,
 		size_of(ui.index_buf),
 		{.INDEX_BUFFER},
 		{.HOST_VISIBLE, .HOST_COHERENT},
 	)
-	ui.const_buffer = vulkan_create_buffer(
+	ui.const_buffer = create_buffer(
 		r,
 		size_of(matrix[4, 4]f32),
 		{.UNIFORM_BUFFER},
 		{.HOST_VISIBLE, .HOST_COHERENT},
 	)
-	vulkan_create_ui_texture(r)
-	vulkan_create_ui_descriptors(r)
+	create_ui_texture(r)
+	create_ui_descriptors(r)
 }
 
-vulkan_create_ui_texture :: proc(r: ^vulkan_renderer) {
+create_ui_texture :: proc(r: ^vulkan_renderer) {
 	ui := &r.ui.ui_ctx
-	staging := vulkan_create_buffer(
+	staging := create_buffer(
 		r,
 		len(mu.default_atlas_alpha),
 		{.TRANSFER_SRC},
 		{.HOST_VISIBLE, .HOST_COHERENT},
 	)
-	defer vulkan_destroy_buffer(r, &staging)
-	vulkan_write_buffer(
-		r,
-		&staging,
-		raw_data(mu.default_atlas_alpha[:]),
-		len(mu.default_atlas_alpha),
-	)
-	ui.texture_image, ui.texture_allocation = vulkan_create_image(
+	defer destroy_buffer(r, &staging)
+	write_buffer(r, &staging, raw_data(mu.default_atlas_alpha[:]), len(mu.default_atlas_alpha))
+	ui.texture_image, ui.texture_allocation = create_image(
 		r,
 		mu.DEFAULT_ATLAS_WIDTH,
 		mu.DEFAULT_ATLAS_HEIGHT,
@@ -92,20 +87,15 @@ vulkan_create_ui_texture :: proc(r: ^vulkan_renderer) {
 		{.TRANSFER_DST, .SAMPLED},
 		{.DEVICE_LOCAL},
 	)
-	vulkan_transition_image_layout(r, ui.texture_image, .UNDEFINED, .TRANSFER_DST_OPTIMAL)
-	vulkan_copy_buffer_to_image(
+	transition_image_layout(r, ui.texture_image, .UNDEFINED, .TRANSFER_DST_OPTIMAL)
+	copy_buffer_to_image(
 		r,
 		staging.buffer,
 		ui.texture_image,
 		mu.DEFAULT_ATLAS_WIDTH,
 		mu.DEFAULT_ATLAS_HEIGHT,
 	)
-	vulkan_transition_image_layout(
-		r,
-		ui.texture_image,
-		.TRANSFER_DST_OPTIMAL,
-		.SHADER_READ_ONLY_OPTIMAL,
-	)
+	transition_image_layout(r, ui.texture_image, .TRANSFER_DST_OPTIMAL, .SHADER_READ_ONLY_OPTIMAL)
 	view_info := vk.ImageViewCreateInfo {
 		sType = .IMAGE_VIEW_CREATE_INFO,
 		image = ui.texture_image,
@@ -138,7 +128,7 @@ vulkan_create_ui_texture :: proc(r: ^vulkan_renderer) {
 	VK_CHECK(vk.CreateSampler(r.device, &samper_info, nil, &ui.sampler), "vkCreateSampler(ui)")
 }
 
-vulkan_create_ui_descriptors :: proc(r: ^vulkan_renderer) {
+create_ui_descriptors :: proc(r: ^vulkan_renderer) {
 	ui := &r.ui.ui_ctx
 	bindings := [3]vk.DescriptorSetLayoutBinding {
 		{binding = 0, descriptorType = .SAMPLER, descriptorCount = 1, stageFlags = {.FRAGMENT}},
@@ -230,12 +220,12 @@ vulkan_create_ui_descriptors :: proc(r: ^vulkan_renderer) {
 	vk.UpdateDescriptorSets(r.device, 3, &writes[0], 0, nil)
 }
 
-vulkan_create_ui_swapchain_objects :: proc(r: ^vulkan_renderer) {
-	vulkan_create_ui_render_pass(r)
-	vulkan_create_ui_framebuffers(r)
+create_ui_swapchain_objects :: proc(r: ^vulkan_renderer) {
+	create_ui_render_pass(r)
+	create_ui_framebuffers(r)
 }
 
-vulkan_create_ui_render_pass :: proc(r: ^vulkan_renderer) {
+create_ui_render_pass :: proc(r: ^vulkan_renderer) {
 	ui := &r.ui.ui_ctx
 	attachment := vk.AttachmentDescription {
 		format         = r.surface_format.format,
@@ -279,7 +269,7 @@ vulkan_create_ui_render_pass :: proc(r: ^vulkan_renderer) {
 	)
 }
 
-vulkan_create_ui_framebuffers :: proc(r: ^vulkan_renderer) {
+create_ui_framebuffers :: proc(r: ^vulkan_renderer) {
 	ui := &r.ui.ui_ctx
 	ui.framebuffers = make([]vk.Framebuffer, len(r.swapchain_views), context.allocator)
 	for view, i in r.swapchain_views {
@@ -300,7 +290,7 @@ vulkan_create_ui_framebuffers :: proc(r: ^vulkan_renderer) {
 	}
 }
 
-vulkan_rebuild_ui_pipeline :: proc(r: ^vulkan_renderer, rebuild_shader_module := true) {
+rebuild_ui_pipeline :: proc(r: ^vulkan_renderer, rebuild_shader_module := true) {
 	ui := &r.ui.ui_ctx
 	if ui.pipeline != {} {
 		vk.DestroyPipeline(r.device, ui.pipeline, nil)
@@ -317,12 +307,12 @@ vulkan_rebuild_ui_pipeline :: proc(r: ^vulkan_renderer, rebuild_shader_module :=
 	if rebuild_shader_module {
 		ui_code := compiler.load_shader_bytes("ui_shader.spirv")
 		defer delete(ui_code)
-		ui.shader_module = vulkan_create_shader_module(ui_code)
+		ui.shader_module = create_shader_module(ui_code)
 	}
-	vulkan_create_ui_pipeline(r)
+	create_ui_pipeline(r)
 }
 
-vulkan_create_ui_pipeline :: proc(r: ^vulkan_renderer) {
+create_ui_pipeline :: proc(r: ^vulkan_renderer) {
 	ui := &r.ui.ui_ctx
 	vert_stage := vk.PipelineShaderStageCreateInfo {
 		sType  = .PIPELINE_SHADER_STAGE_CREATE_INFO,
@@ -439,7 +429,7 @@ vulkan_create_ui_pipeline :: proc(r: ^vulkan_renderer) {
 	r.ui.ui_write_consts()
 }
 
-vulkan_destroy_ui_swapchain_objects :: proc(r: ^vulkan_renderer) {
+destroy_ui_swapchain_objects :: proc(r: ^vulkan_renderer) {
 	ui := &r.ui.ui_ctx
 	for framebuffer in ui.framebuffers {
 		if framebuffer != {} {
@@ -462,9 +452,9 @@ vulkan_destroy_ui_swapchain_objects :: proc(r: ^vulkan_renderer) {
 	}
 }
 
-vulkan_shutdown_ui :: proc(r: ^vulkan_renderer) {
+shutdown_ui :: proc(r: ^vulkan_renderer) {
 	ui := &r.ui.ui_ctx
-	vulkan_destroy_ui_swapchain_objects(r)
+	destroy_ui_swapchain_objects(r)
 	if ui.shader_module != {} {
 		vk.DestroyShaderModule(r.device, ui.shader_module, nil)
 	}
@@ -483,10 +473,10 @@ vulkan_shutdown_ui :: proc(r: ^vulkan_renderer) {
 	if ui.texture_image != {} {
 		vma.DestroyImage(r.allocator_vma, ui.texture_image, ui.texture_allocation)
 	}
-	vulkan_destroy_buffer(r, &ui.vertex_buffer)
-	vulkan_destroy_buffer(r, &ui.tex_buffer)
-	vulkan_destroy_buffer(r, &ui.color_buffer)
-	vulkan_destroy_buffer(r, &ui.index_buffer)
-	vulkan_destroy_buffer(r, &ui.const_buffer)
+	destroy_buffer(r, &ui.vertex_buffer)
+	destroy_buffer(r, &ui.tex_buffer)
+	destroy_buffer(r, &ui.color_buffer)
+	destroy_buffer(r, &ui.index_buffer)
+	destroy_buffer(r, &ui.const_buffer)
 	vma.DestroyAllocator(r.allocator_vma)
 }

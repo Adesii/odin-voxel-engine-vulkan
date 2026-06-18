@@ -147,7 +147,7 @@ get_window_size :: proc() -> (w: i32, h: i32) {
 	sdl.GetWindowSizeInPixels(renderer.window, &width, &height)
 	return width, height
 }
-vulkan_has_validation_layer :: proc() -> bool {
+has_validation_layer :: proc() -> bool {
 	count: u32
 	VK_CHECK(
 		vk.EnumerateInstanceLayerProperties(&count, nil),
@@ -171,7 +171,7 @@ vulkan_has_validation_layer :: proc() -> bool {
 	return false
 }
 
-vulkan_create_debug_messenger :: proc(r: ^vulkan_renderer) {
+create_debug_messenger :: proc(r: ^vulkan_renderer) {
 	if !validation_enabled() {
 		return
 	}
@@ -193,7 +193,7 @@ VK_CHECK :: proc(result: vk.Result, what: string) {
 	}
 }
 
-vulkan_find_memory_type :: proc(
+find_memory_type :: proc(
 	r: ^vulkan_renderer,
 	type_filter: u32,
 	properties: vk.MemoryPropertyFlags,
@@ -209,7 +209,7 @@ vulkan_find_memory_type :: proc(
 	fmt.panicf("Failed to find compatible Vulkan memory type")
 }
 
-vulkan_create_buffer :: proc(
+create_buffer :: proc(
 	r: ^vulkan_renderer,
 	size: int,
 	usage: vk.BufferUsageFlags,
@@ -255,7 +255,7 @@ vulkan_create_buffer :: proc(
 	)
 	return b
 }
-vulkan_create_sampler :: proc(
+create_sampler :: proc(
 	r: ^vulkan_renderer,
 	filter: vk.Filter,
 	address_mode: vk.SamplerAddressMode,
@@ -285,7 +285,7 @@ vulkan_create_sampler :: proc(
 	return sampler
 }
 
-vulkan_create_pipeline_layout :: proc(
+create_pipeline_layout :: proc(
 	r: ^vulkan_renderer,
 	shader_name: string,
 	stage_flags: vk.ShaderStageFlags,
@@ -329,7 +329,7 @@ vulkan_create_pipeline_layout :: proc(
 	return pipeline_layout
 }
 
-vulkan_create_compute_pipeline :: proc(
+create_compute_pipeline :: proc(
 	r: ^vulkan_renderer,
 	entry_point: string,
 	shader_name: string,
@@ -339,7 +339,7 @@ vulkan_create_compute_pipeline :: proc(
 	stage := vk.PipelineShaderStageCreateInfo {
 		sType  = .PIPELINE_SHADER_STAGE_CREATE_INFO,
 		stage  = {.COMPUTE},
-		module = vulkan_create_shader_module(module), //TODO: Cache them and destroy too
+		module = create_shader_module(module), //TODO: Cache them and destroy too
 		pName  = strings.clone_to_cstring(entry_point),
 	}
 	pipeline_info := vk.ComputePipelineCreateInfo {
@@ -355,7 +355,7 @@ vulkan_create_compute_pipeline :: proc(
 	return pipeline
 }
 
-vulkan_destroy_buffer :: proc(r: ^vulkan_renderer, buffer: ^vulkan_buffer) {
+destroy_buffer :: proc(r: ^vulkan_renderer, buffer: ^vulkan_buffer) {
 	if buffer.buffer != {} {
 		vk.DestroyBuffer(r.device, buffer.buffer, nil)
 		buffer.buffer = {}
@@ -363,12 +363,7 @@ vulkan_destroy_buffer :: proc(r: ^vulkan_renderer, buffer: ^vulkan_buffer) {
 	vma.DestroyBuffer(r.allocator_vma, buffer.buffer, buffer.allocation)
 }
 
-vulkan_write_buffer :: proc(
-	r: ^vulkan_renderer,
-	buffer: ^vulkan_buffer,
-	data: rawptr,
-	size: int,
-) { 	//TODO: Figure out if this actually does anything
+write_buffer :: proc(r: ^vulkan_renderer, buffer: ^vulkan_buffer, data: rawptr, size: int) { 	//TODO: Figure out if this actually does anything
 	if size <= 0 {
 		return
 	}
@@ -379,7 +374,7 @@ vulkan_write_buffer :: proc(
 }
 
 
-vulkan_allocate_descriptor_set :: proc(
+allocate_descriptor_set :: proc(
 	r: ^vulkan_renderer,
 	shader_name: string,
 	stage_flags: vk.ShaderStageFlags,
@@ -423,7 +418,7 @@ vulkan_allocate_descriptor_set :: proc(
 	return set
 }
 
-vulkan_set_scissor :: proc(command_buffer: vk.CommandBuffer, x, y, w, h: u32) {
+set_scissor :: proc(command_buffer: vk.CommandBuffer, x, y, w, h: u32) {
 	scissor := vk.Rect2D {
 		offset = {i32(x), i32(y)},
 		extent = {w, h},
@@ -431,7 +426,7 @@ vulkan_set_scissor :: proc(command_buffer: vk.CommandBuffer, x, y, w, h: u32) {
 	vk.CmdSetScissor(command_buffer, 0, 1, &scissor)
 }
 
-vulkan_create_image :: proc(
+create_image :: proc(
 	r: ^vulkan_renderer,
 	width, height: u32,
 	format: vk.Format,
@@ -477,7 +472,7 @@ vulkan_create_image :: proc(
 	return image, vma_allocation
 }
 
-vulkan_begin_single_use_commands :: proc(r: ^vulkan_renderer) -> vk.CommandBuffer {
+begin_single_use_commands :: proc(r: ^vulkan_renderer) -> vk.CommandBuffer {
 	alloc_info := vk.CommandBufferAllocateInfo {
 		sType              = .COMMAND_BUFFER_ALLOCATE_INFO,
 		commandPool        = r.command_pool,
@@ -500,7 +495,7 @@ vulkan_begin_single_use_commands :: proc(r: ^vulkan_renderer) -> vk.CommandBuffe
 	return command_buffer
 }
 
-vulkan_end_single_use_commands :: proc(r: ^vulkan_renderer, command_buffer: vk.CommandBuffer) {
+end_single_use_commands :: proc(r: ^vulkan_renderer, command_buffer: vk.CommandBuffer) {
 	VK_CHECK(vk.EndCommandBuffer(command_buffer), "vkEndCommandBuffer(single-use)")
 	cmd := command_buffer
 	submit_info := vk.SubmitInfo {
@@ -513,12 +508,12 @@ vulkan_end_single_use_commands :: proc(r: ^vulkan_renderer, command_buffer: vk.C
 	vk.FreeCommandBuffers(r.device, r.command_pool, 1, &cmd)
 }
 
-vulkan_transition_image_layout :: proc(
+transition_image_layout :: proc(
 	r: ^vulkan_renderer,
 	image: vk.Image,
 	old_layout, new_layout: vk.ImageLayout,
 ) {
-	command_buffer := vulkan_begin_single_use_commands(r)
+	command_buffer := begin_single_use_commands(r)
 	barrier := vk.ImageMemoryBarrier {
 		sType = .IMAGE_MEMORY_BARRIER,
 		oldLayout = old_layout,
@@ -550,16 +545,16 @@ vulkan_transition_image_layout :: proc(
 		fmt.panicf("Unsupported layout transition: %v -> %v", old_layout, new_layout)
 	}
 	vk.CmdPipelineBarrier(command_buffer, src_stage, dst_stage, {}, 0, nil, 0, nil, 1, &barrier)
-	vulkan_end_single_use_commands(r, command_buffer)
+	end_single_use_commands(r, command_buffer)
 }
 
-vulkan_copy_buffer_to_image :: proc(
+copy_buffer_to_image :: proc(
 	r: ^vulkan_renderer,
 	buffer: vk.Buffer,
 	image: vk.Image,
 	width, height: u32,
 ) {
-	command_buffer := vulkan_begin_single_use_commands(r)
+	command_buffer := begin_single_use_commands(r)
 	region := vk.BufferImageCopy {
 		imageSubresource = {
 			aspectMask = {.COLOR},
@@ -570,5 +565,5 @@ vulkan_copy_buffer_to_image :: proc(
 		imageExtent = {width, height, 1},
 	}
 	vk.CmdCopyBufferToImage(command_buffer, buffer, image, .TRANSFER_DST_OPTIMAL, 1, &region)
-	vulkan_end_single_use_commands(r, command_buffer)
+	end_single_use_commands(r, command_buffer)
 }

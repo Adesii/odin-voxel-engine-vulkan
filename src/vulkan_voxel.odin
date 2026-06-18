@@ -35,7 +35,7 @@ vulkan_init_voxel_buffers :: proc(r: ^vulkan.vulkan_renderer) {
 	ctx := &state.voxel_ctx
 	grid_size := state.grid_size
 	// Create uniform buffer
-	ctx.uniform_buffer = vulkan.vulkan_create_buffer(
+	ctx.uniform_buffer = vulkan.create_buffer(
 		r,
 		v.VOXEL_UNIFORM_BUFFER_SIZE,
 		{.UNIFORM_BUFFER},
@@ -44,7 +44,7 @@ vulkan_init_voxel_buffers :: proc(r: ^vulkan.vulkan_renderer) {
 
 	// Create voxel buffer (initially empty, will be updated each frame)
 	voxel_buffer_size := grid_size.x * grid_size.y * grid_size.z * size_of(Voxel)
-	ctx.voxel_buffer = vulkan.vulkan_create_buffer(
+	ctx.voxel_buffer = vulkan.create_buffer(
 		r,
 		int(voxel_buffer_size),
 		{.STORAGE_BUFFER, .TRANSFER_DST},
@@ -52,7 +52,7 @@ vulkan_init_voxel_buffers :: proc(r: ^vulkan.vulkan_renderer) {
 	)
 
 	// Allocate descriptor set for the voxel shader
-	ctx.descriptor_set = vulkan.vulkan_allocate_descriptor_set(
+	ctx.descriptor_set = vulkan.allocate_descriptor_set(
 		r,
 		"voxel_shader",
 		{.COMPUTE},
@@ -63,7 +63,7 @@ vulkan_init_voxel_buffers :: proc(r: ^vulkan.vulkan_renderer) {
 		},
 	)
 
-	image, alloc := vulkan.vulkan_create_image(
+	image, alloc := vulkan.create_image(
 		r,
 		r.extent.width,
 		r.extent.height,
@@ -72,7 +72,7 @@ vulkan_init_voxel_buffers :: proc(r: ^vulkan.vulkan_renderer) {
 		{.DEVICE_LOCAL},
 	)
 	// Run this ONCE right after allocating your output storage image
-	cmd := vulkan.vulkan_begin_single_use_commands(r)
+	cmd := vulkan.begin_single_use_commands(r)
 
 	barrier := vk.ImageMemoryBarrier {
 		sType = .IMAGE_MEMORY_BARRIER,
@@ -105,7 +105,7 @@ vulkan_init_voxel_buffers :: proc(r: ^vulkan.vulkan_renderer) {
 		&barrier,
 	)
 
-	vulkan.vulkan_end_single_use_commands(r, cmd)
+	vulkan.end_single_use_commands(r, cmd)
 
 	view_info := vk.ImageViewCreateInfo {
 		sType = .IMAGE_VIEW_CREATE_INFO,
@@ -121,7 +121,7 @@ vulkan_init_voxel_buffers :: proc(r: ^vulkan.vulkan_renderer) {
 			layerCount = 1,
 		},
 	}
-	sampler := vulkan.vulkan_create_sampler(r, .LINEAR, .CLAMP_TO_EDGE)
+	sampler := vulkan.create_sampler(r, .LINEAR, .CLAMP_TO_EDGE)
 	view: vk.ImageView
 	vulkan.VK_CHECK(vk.CreateImageView(r.device, &view_info, nil, &view), "vkCreateImageView")
 	ctx.blit_image = vulkan.vulkan_image {
@@ -242,25 +242,25 @@ vulkan_upload_test_voxels :: proc(
 	// Upload data to GPU
 
 	voxel_buffer_size := int(total_voxels * size_of(Voxel))
-	staging_buffer := vulkan.vulkan_create_buffer(
+	staging_buffer := vulkan.create_buffer(
 		r,
 		voxel_buffer_size,
 		{.TRANSFER_SRC},
 		{.HOST_VISIBLE, .HOST_COHERENT},
 	)
 
-	vulkan.vulkan_write_buffer(r, &staging_buffer, raw_data(cpu_data), voxel_buffer_size)
+	vulkan.write_buffer(r, &staging_buffer, raw_data(cpu_data), voxel_buffer_size)
 
-	cmd := vulkan.vulkan_begin_single_use_commands(r)
+	cmd := vulkan.begin_single_use_commands(r)
 	copy_region := vk.BufferCopy {
 		srcOffset = 0,
 		dstOffset = 0,
 		size      = vk.DeviceSize(voxel_buffer_size),
 	}
 	vk.CmdCopyBuffer(cmd, staging_buffer.buffer, ctx.voxel_buffer.buffer, 1, &copy_region)
-	vulkan.vulkan_end_single_use_commands(r, cmd)
+	vulkan.end_single_use_commands(r, cmd)
 
-	vulkan.vulkan_destroy_buffer(r, &staging_buffer)
+	vulkan.destroy_buffer(r, &staging_buffer)
 
 }
 
@@ -296,7 +296,7 @@ vulkan_create_compute_pipeline_for_voxels :: proc(
 	r: ^vulkan.vulkan_renderer,
 	ctx: ^Voxel_Buffer_Context,
 ) {
-	ctx.compute_pipeline_layout = vulkan.vulkan_create_pipeline_layout(
+	ctx.compute_pipeline_layout = vulkan.create_pipeline_layout(
 		r,
 		"voxel",
 		{.COMPUTE},
@@ -307,7 +307,7 @@ vulkan_create_compute_pipeline_for_voxels :: proc(
 		},
 	)
 
-	ctx.compute_pipeline = vulkan.vulkan_create_compute_pipeline(
+	ctx.compute_pipeline = vulkan.create_compute_pipeline(
 		r,
 		v.VOXEL_MAIN_ENTRY_POINT,
 		"voxel",

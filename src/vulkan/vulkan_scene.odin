@@ -8,7 +8,7 @@ import "core:fmt"
 import sdl "vendor:sdl3"
 import vk "vendor:vulkan"
 
-vulkan_create_shader_module :: proc(bytes: []byte) -> vk.ShaderModule {
+create_shader_module :: proc(bytes: []byte) -> vk.ShaderModule {
 	if len(bytes) == 0 || len(bytes) % 4 != 0 {
 		fmt.panicf("Invalid SPIR-V bytecode size: %d", len(bytes))
 	}
@@ -59,13 +59,13 @@ rebuild_shaders :: proc() {
 	fragment_code := compiler.load_shader_bytes("default.spirv")
 	defer delete(fragment_code)
 
-	r.fullscreen.vert_module = vulkan_create_shader_module(vertex_code)
-	r.fullscreen.frag_module = vulkan_create_shader_module(fragment_code)
-	vulkan_create_pipeline(r)
-	vulkan_rebuild_ui_pipeline(r)
+	r.fullscreen.vert_module = create_shader_module(vertex_code)
+	r.fullscreen.frag_module = create_shader_module(fragment_code)
+	create_pipeline(r)
+	rebuild_ui_pipeline(r)
 }
 
-vulkan_create_pipeline :: proc(r: ^vulkan_renderer) {
+create_pipeline :: proc(r: ^vulkan_renderer) {
 	vert_stage := vk.PipelineShaderStageCreateInfo {
 		sType  = .PIPELINE_SHADER_STAGE_CREATE_INFO,
 		stage  = {.VERTEX},
@@ -209,7 +209,7 @@ bind_fullscreen_descriptors :: proc(r: ^vulkan_renderer) {
 	vk.UpdateDescriptorSets(r.device, 1, &write_descriptor, 0, nil)
 }
 
-vulkan_record_command_buffer :: proc(
+record_command_buffer :: proc(
 	r: ^vulkan_renderer,
 	command_buffer: vk.CommandBuffer,
 	image_index: u32,
@@ -279,7 +279,7 @@ vulkan_record_command_buffer :: proc(
 	VK_CHECK(vk.EndCommandBuffer(command_buffer), "vkEndCommandBuffer")
 }
 
-vulkan_frame :: proc() {
+frame :: proc() {
 	context = runtime.default_context()
 	r := &renderer
 	frame_slot := r.frame_index % MAX_FRAMES_IN_FLIGHT
@@ -298,7 +298,7 @@ vulkan_frame :: proc() {
 		&image_index,
 	)
 	if acquire_result == .ERROR_OUT_OF_DATE_KHR {
-		vulkan_recreate_swapchain(r)
+		recreate_swapchain(r)
 		return
 	}
 	if acquire_result != .SUCCESS && acquire_result != .SUBOPTIMAL_KHR {
@@ -313,7 +313,7 @@ vulkan_frame :: proc() {
 	VK_CHECK(vk.ResetFences(r.device, 1, &r.in_flight[frame_slot]), "vkResetFences")
 	r.images_in_flight[image_index] = r.in_flight[frame_slot]
 
-	vulkan_record_command_buffer(r, r.command_buffers[frame_slot], image_index)
+	record_command_buffer(r, r.command_buffers[frame_slot], image_index)
 	render_finished := r.render_finished[image_index]
 	wait_stage := vk.PipelineStageFlags{.COLOR_ATTACHMENT_OUTPUT}
 	submit_info := vk.SubmitInfo {
@@ -343,19 +343,19 @@ vulkan_frame :: proc() {
 	   present_result == .SUBOPTIMAL_KHR ||
 	   r.framebuffer_resized {
 		r.framebuffer_resized = false
-		vulkan_recreate_swapchain(r)
+		recreate_swapchain(r)
 	} else if present_result != .SUCCESS {
 		fmt.panicf("vkQueuePresentKHR failed: %v", present_result)
 	}
 	r.frame_index += 1
 }
 
-vulkan_finish :: proc() {
+finish :: proc() {
 	r := &renderer
 	if r.device != {} {
 		_ = vk.DeviceWaitIdle(r.device)
 	}
-	vulkan_destroy_swapchain_objects(r)
+	destroy_swapchain_objects(r)
 	if r.fullscreen.vert_module != {} {
 		vk.DestroyShaderModule(r.device, r.fullscreen.vert_module, nil)
 	}
@@ -365,7 +365,7 @@ vulkan_finish :: proc() {
 	for unloads in r.unload_proc {
 		unloads(r)
 	}
-	vulkan_shutdown_ui(r)
+	shutdown_ui(r)
 	for semaphore in r.image_available {
 		if semaphore != {} {
 			vk.DestroySemaphore(r.device, semaphore, nil)
