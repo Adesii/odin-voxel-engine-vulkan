@@ -8,11 +8,11 @@ import "core:mem"
 import "utils"
 import mu "vendor:microui"
 import sdl "vendor:sdl3"
+import "vulkan"
 
 state: struct {
 	ctx:       runtime.Context,
 	window:    ^sdl.Window,
-	renderer:  vulkan_renderer,
 	mu_ctx:    mu.Context,
 	bg:        mu.Color,
 	voxel_ctx: Voxel_Buffer_Context,
@@ -78,7 +78,12 @@ main :: proc() {
 		fmt.panicf("Failed to create window: %v\n", sdl.GetError())
 	}
 
-	vulkan_init()
+	state.grid_size = {64, 64, 64}
+	vulkan.renderer.ui.ui_write_consts = r_write_consts
+	vulkan.renderer.ui.ui_render = r_render
+	vulkan.renderer.voxel.render = vulkan_run
+	append(&vulkan.renderer.init_proc, vulkan_init_voxel_buffers)
+	vulkan.vulkan_init(state.window)
 	run_game()
 }
 
@@ -123,13 +128,13 @@ run_game :: proc() {
 			case .QUIT:
 				break main_loop
 			case .WINDOW_RESIZED, .WINDOW_PIXEL_SIZE_CHANGED:
-				vulkan_resize()
+				vulkan.vulkan_resize()
 			case .KEY_DOWN:
 				if e.key.key == sdl.K_ESCAPE {
 					break main_loop
 				}
 				if e.key.key == sdl.K_F6 {
-					rebuild_shaders()
+					vulkan.rebuild_shaders()
 				}
 				held_keys_map[e.key.key] = true
 				mu.input_key_down(&state.mu_ctx, convert_key(e.key.key))
@@ -192,7 +197,7 @@ run_game :: proc() {
 		// demo_windows(&state.mu_ctx)
 		mu.end(&state.mu_ctx)
 		update_camera(dt)
-		vulkan_frame()
+		vulkan.vulkan_frame()
 		frame_count += 1
 	}
 
@@ -266,7 +271,7 @@ camera_controls :: proc(dt: f32) {
 
 update_camera :: proc(dt: f32) {
 	camera_controls(dt)
-	aspect_ratio := f32(state.renderer.extent.width) / f32(state.renderer.extent.height)
+	aspect_ratio := f32(vulkan.renderer.extent.width) / f32(vulkan.renderer.extent.height)
 
 	proj := lina.matrix4_perspective(math.to_radians(f32(90.0)), aspect_ratio, 0.1, 10000)
 	rot_m4 := lina.matrix4_from_quaternion(lina.quaternion_inverse(state.camera.rotation))
@@ -279,6 +284,6 @@ update_camera :: proc(dt: f32) {
 }
 
 finish :: proc() {
-	vulkan_finish()
+	vulkan.vulkan_finish()
 	utils.destroy_file_watchers()
 }

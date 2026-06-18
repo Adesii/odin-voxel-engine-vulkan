@@ -1,4 +1,4 @@
-package main
+package vkapi
 
 import vk "vendor:vulkan"
 
@@ -264,6 +264,5 @@ vulkan_recreate_swapchain :: proc(r: ^vulkan_renderer) {
 }
 
 vulkan_resize :: proc() {
-	context = state.ctx
-	state.renderer.framebuffer_resized = true
+	renderer.framebuffer_resized = true
 }

@@ -1,12 +1,40 @@
-package main
+package vkapi
 
-import vma "../vendor/odin-vma"
-import compiler "utils"
+import vma "../../vendor/odin-vma"
+import compiler "../utils"
 import mu "vendor:microui"
 import vk "vendor:vulkan"
 
+BUFFER_SIZE :: 16384
+microui_ctx :: struct {
+	texture_image:       vk.Image,
+	texture_allocation:  vma.Allocation,
+	texture_view:        vk.ImageView,
+	sampler:             vk.Sampler,
+	descriptor_layout:   vk.DescriptorSetLayout,
+	descriptor_pool:     vk.DescriptorPool,
+	descriptor_set:      vk.DescriptorSet,
+	pipeline_layout:     vk.PipelineLayout,
+	pipeline:            vk.Pipeline,
+	render_pass:         vk.RenderPass,
+	framebuffers:        []vk.Framebuffer,
+	vertex_buffer:       vulkan_buffer,
+	tex_buffer:          vulkan_buffer,
+	color_buffer:        vulkan_buffer,
+	index_buffer:        vulkan_buffer,
+	const_buffer:        vulkan_buffer,
+	shader_module:       vk.ShaderModule,
+	tex_buf:             [BUFFER_SIZE * 8]f32,
+	vert_buf:            [BUFFER_SIZE * 8]f32,
+	color_buf:           [BUFFER_SIZE * 16]u8,
+	index_buf:           [BUFFER_SIZE * 6]u32,
+	prev_buf_idx:        u32,
+	buf_idx:             u32,
+	current_command:     vk.CommandBuffer,
+	current_framebuffer: vk.Framebuffer,
+}
 vulkan_init_ui :: proc(r: ^vulkan_renderer) {
-	ui := &r.ui
+	ui := &r.ui.ui_ctx
 	ui.vertex_buffer = vulkan_create_buffer(
 		r,
 		size_of(ui.vert_buf),
@@ -42,7 +70,7 @@ vulkan_init_ui :: proc(r: ^vulkan_renderer) {
 }
 
 vulkan_create_ui_texture :: proc(r: ^vulkan_renderer) {
-	ui := &r.ui
+	ui := &r.ui.ui_ctx
 	staging := vulkan_create_buffer(
 		r,
 		len(mu.default_atlas_alpha),
@@ -111,7 +139,7 @@ vulkan_create_ui_texture :: proc(r: ^vulkan_renderer) {
 }
 
 vulkan_create_ui_descriptors :: proc(r: ^vulkan_renderer) {
-	ui := &r.ui
+	ui := &r.ui.ui_ctx
 	bindings := [3]vk.DescriptorSetLayoutBinding {
 		{binding = 0, descriptorType = .SAMPLER, descriptorCount = 1, stageFlags = {.FRAGMENT}},
 		{
@@ -208,7 +236,7 @@ vulkan_create_ui_swapchain_objects :: proc(r: ^vulkan_renderer) {
 }
 
 vulkan_create_ui_render_pass :: proc(r: ^vulkan_renderer) {
-	ui := &r.ui
+	ui := &r.ui.ui_ctx
 	attachment := vk.AttachmentDescription {
 		format         = r.surface_format.format,
 		samples        = {._1},
@@ -252,7 +280,7 @@ vulkan_create_ui_render_pass :: proc(r: ^vulkan_renderer) {
 }
 
 vulkan_create_ui_framebuffers :: proc(r: ^vulkan_renderer) {
-	ui := &r.ui
+	ui := &r.ui.ui_ctx
 	ui.framebuffers = make([]vk.Framebuffer, len(r.swapchain_views), context.allocator)
 	for view, i in r.swapchain_views {
 		attachments := [1]vk.ImageView{view}
@@ -273,7 +301,7 @@ vulkan_create_ui_framebuffers :: proc(r: ^vulkan_renderer) {
 }
 
 vulkan_rebuild_ui_pipeline :: proc(r: ^vulkan_renderer, rebuild_shader_module := true) {
-	ui := &r.ui
+	ui := &r.ui.ui_ctx
 	if ui.pipeline != {} {
 		vk.DestroyPipeline(r.device, ui.pipeline, nil)
 		ui.pipeline = {}
@@ -295,7 +323,7 @@ vulkan_rebuild_ui_pipeline :: proc(r: ^vulkan_renderer, rebuild_shader_module :=
 }
 
 vulkan_create_ui_pipeline :: proc(r: ^vulkan_renderer) {
-	ui := &r.ui
+	ui := &r.ui.ui_ctx
 	vert_stage := vk.PipelineShaderStageCreateInfo {
 		sType  = .PIPELINE_SHADER_STAGE_CREATE_INFO,
 		stage  = {.VERTEX},
@@ -408,11 +436,11 @@ vulkan_create_ui_pipeline :: proc(r: ^vulkan_renderer) {
 		vk.CreateGraphicsPipelines(r.device, {}, 1, &create_info, nil, &ui.pipeline),
 		"vkCreateGraphicsPipelines(ui)",
 	)
-	r_write_consts()
+	r.ui.ui_write_consts()
 }
 
 vulkan_destroy_ui_swapchain_objects :: proc(r: ^vulkan_renderer) {
-	ui := &r.ui
+	ui := &r.ui.ui_ctx
 	for framebuffer in ui.framebuffers {
 		if framebuffer != {} {
 			vk.DestroyFramebuffer(r.device, framebuffer, nil)
@@ -435,7 +463,7 @@ vulkan_destroy_ui_swapchain_objects :: proc(r: ^vulkan_renderer) {
 }
 
 vulkan_shutdown_ui :: proc(r: ^vulkan_renderer) {
-	ui := &r.ui
+	ui := &r.ui.ui_ctx
 	vulkan_destroy_ui_swapchain_objects(r)
 	if ui.shader_module != {} {
 		vk.DestroyShaderModule(r.device, ui.shader_module, nil)

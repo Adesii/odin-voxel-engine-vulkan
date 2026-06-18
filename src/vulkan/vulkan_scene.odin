@@ -1,9 +1,10 @@
-package main
+package vkapi
 
+import "../shaders/default_shader"
+import compiler "../utils"
+import "../utils"
+import "base:runtime"
 import "core:fmt"
-import "shaders/default_shader"
-import compiler "utils"
-import "utils"
 import sdl "vendor:sdl3"
 import vk "vendor:vulkan"
 
@@ -18,15 +19,15 @@ vulkan_create_shader_module :: proc(bytes: []byte) -> vk.ShaderModule {
 	}
 	module: vk.ShaderModule
 	VK_CHECK(
-		vk.CreateShaderModule(state.renderer.device, &create_info, nil, &module),
+		vk.CreateShaderModule(renderer.device, &create_info, nil, &module),
 		"vkCreateShaderModule",
 	)
 	return module
 }
 
 rebuild_shaders :: proc() {
-	context = state.ctx
-	r := &state.renderer
+	context = runtime.default_context()
+	r := &renderer
 	fmt.printfln("Reloading shaders...")
 	compiler.compile("shader_src/", "shaders/")
 
@@ -193,8 +194,8 @@ vulkan_create_pipeline :: proc(r: ^vulkan_renderer) {
 
 bind_fullscreen_descriptors :: proc(r: ^vulkan_renderer) {
 	image_info := vk.DescriptorImageInfo {
-		sampler     = state.voxel_ctx.blit_image.sampler,
-		imageView   = state.voxel_ctx.blit_image.view,
+		sampler     = r.voxel.image_blit.sampler,
+		imageView   = r.voxel.image_blit.view,
 		imageLayout = .SHADER_READ_ONLY_OPTIMAL,
 	}
 	write_descriptor := vk.WriteDescriptorSet {
@@ -231,7 +232,7 @@ vulkan_record_command_buffer :: proc(
 		clearValueCount = 1,
 		pClearValues = &clear_value,
 	}
-	vulkan_run(r, &state.voxel_ctx, state.camera, state.grid_size, command_buffer)
+	r.voxel.render(r, command_buffer)
 	vk.CmdBeginRenderPass(command_buffer, &render_pass_info, .INLINE)
 	bind_fullscreen_descriptors(r)
 	vk.CmdBindPipeline(command_buffer, .GRAPHICS, r.fullscreen.pipeline)
@@ -248,14 +249,14 @@ vulkan_record_command_buffer :: proc(
 	vk.CmdDraw(command_buffer, 6, 1, 0, 0)
 	vk.CmdEndRenderPass(command_buffer)
 
-	r_render(command_buffer, r.ui.framebuffers[image_index])
+	r.ui.ui_render(command_buffer, r.ui.ui_ctx.framebuffers[image_index])
 
 	// 4. Transition compute texture back to GENERAL layout so next frame can write to it again
 	reset_barrier := vk.ImageMemoryBarrier {
 		sType = .IMAGE_MEMORY_BARRIER,
 		oldLayout = .SHADER_READ_ONLY_OPTIMAL,
 		newLayout = .GENERAL,
-		image = state.voxel_ctx.blit_image.image,
+		image = renderer.voxel.image_blit.image,
 		subresourceRange = {aspectMask = {.COLOR}, levelCount = 1, layerCount = 1},
 		srcAccessMask = {.SHADER_READ},
 		dstAccessMask = {.SHADER_WRITE},
@@ -279,8 +280,8 @@ vulkan_record_command_buffer :: proc(
 }
 
 vulkan_frame :: proc() {
-	context = state.ctx
-	r := &state.renderer
+	context = runtime.default_context()
+	r := &renderer
 	frame_slot := r.frame_index % MAX_FRAMES_IN_FLIGHT
 	VK_CHECK(
 		vk.WaitForFences(r.device, 1, &r.in_flight[frame_slot], true, vk.WHOLE_SIZE),
@@ -350,7 +351,7 @@ vulkan_frame :: proc() {
 }
 
 vulkan_finish :: proc() {
-	r := &state.renderer
+	r := &renderer
 	if r.device != {} {
 		_ = vk.DeviceWaitIdle(r.device)
 	}
@@ -360,6 +361,9 @@ vulkan_finish :: proc() {
 	}
 	if r.fullscreen.frag_module != {} {
 		vk.DestroyShaderModule(r.device, r.fullscreen.frag_module, nil)
+	}
+	for unloads in r.unload_proc {
+		unloads(r)
 	}
 	vulkan_shutdown_ui(r)
 	for semaphore in r.image_available {

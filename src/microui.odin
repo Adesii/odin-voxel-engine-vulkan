@@ -9,36 +9,9 @@ import vma "../vendor/odin-vma"
 import mu "vendor:microui"
 import sdl "vendor:sdl3"
 import vk "vendor:vulkan"
+import "vulkan"
 
 BUFFER_SIZE :: 16384
-
-microui_ctx :: struct {
-	texture_image:       vk.Image,
-	texture_allocation:  vma.Allocation,
-	texture_view:        vk.ImageView,
-	sampler:             vk.Sampler,
-	descriptor_layout:   vk.DescriptorSetLayout,
-	descriptor_pool:     vk.DescriptorPool,
-	descriptor_set:      vk.DescriptorSet,
-	pipeline_layout:     vk.PipelineLayout,
-	pipeline:            vk.Pipeline,
-	render_pass:         vk.RenderPass,
-	framebuffers:        []vk.Framebuffer,
-	vertex_buffer:       vulkan_buffer,
-	tex_buffer:          vulkan_buffer,
-	color_buffer:        vulkan_buffer,
-	index_buffer:        vulkan_buffer,
-	const_buffer:        vulkan_buffer,
-	shader_module:       vk.ShaderModule,
-	tex_buf:             [BUFFER_SIZE * 8]f32,
-	vert_buf:            [BUFFER_SIZE * 8]f32,
-	color_buf:           [BUFFER_SIZE * 16]u8,
-	index_buf:           [BUFFER_SIZE * 6]u32,
-	prev_buf_idx:        u32,
-	buf_idx:             u32,
-	current_command:     vk.CommandBuffer,
-	current_framebuffer: vk.Framebuffer,
-}
 
 get_dpi :: proc() -> f32 {
 	return sdl.GetDisplayContentScale(sdl.GetDisplayForWindow(state.window))
@@ -81,13 +54,13 @@ convert_key :: proc(sdlkey: sdl.Keycode) -> mu.Key {
 }
 
 r_write_consts :: proc() {
-	r := &state.renderer.ui
+	r := &vulkan.renderer.ui.ui_ctx
 	dpi := get_dpi()
 	width, height := get_window_size()
 	fw, fh := f32(width), f32(height)
 	transform := linalg.matrix_ortho3d(0, fw, 0, fh, -1, 1) * linalg.matrix4_scale(dpi)
-	vulkan_write_buffer(
-		&state.renderer,
+	vulkan.vulkan_write_buffer(
+		&vulkan.renderer,
 		&r.const_buffer,
 		raw_data([]matrix[4, 4]f32{transform}),
 		size_of(transform),
@@ -95,7 +68,7 @@ r_write_consts :: proc() {
 }
 
 r_flush :: proc() {
-	r := &state.renderer.ui
+	r := &vulkan.renderer.ui.ui_ctx
 	if r.buf_idx == 0 || r.buf_idx == r.prev_buf_idx {
 		return
 	}
@@ -105,7 +78,7 @@ r_flush :: proc() {
 }
 
 r_bind :: proc(command_buffer: vk.CommandBuffer) {
-	r := &state.renderer.ui
+	r := &vulkan.renderer.ui.ui_ctx
 	if r.pipeline == {} ||
 	   r.pipeline_layout == {} ||
 	   r.descriptor_set == {} ||
@@ -138,29 +111,29 @@ r_bind :: proc(command_buffer: vk.CommandBuffer) {
 }
 
 r_submit :: proc() {
-	r := &state.renderer.ui
+	r := &vulkan.renderer.ui.ui_ctx
 	r_flush()
 	r_write_consts()
-	vulkan_write_buffer(
-		&state.renderer,
+	vulkan.vulkan_write_buffer(
+		&vulkan.renderer,
 		&r.vertex_buffer,
 		raw_data(r.vert_buf[:]),
 		int(r.buf_idx * 8 * size_of(f32)),
 	)
-	vulkan_write_buffer(
-		&state.renderer,
+	vulkan.vulkan_write_buffer(
+		&vulkan.renderer,
 		&r.tex_buffer,
 		raw_data(r.tex_buf[:]),
 		int(r.buf_idx * 8 * size_of(f32)),
 	)
-	vulkan_write_buffer(
-		&state.renderer,
+	vulkan.vulkan_write_buffer(
+		&vulkan.renderer,
 		&r.color_buffer,
 		raw_data(r.color_buf[:]),
 		int(r.buf_idx * 16),
 	)
-	vulkan_write_buffer(
-		&state.renderer,
+	vulkan.vulkan_write_buffer(
+		&vulkan.renderer,
 		&r.index_buffer,
 		raw_data(r.index_buf[:]),
 		int(r.buf_idx * 6 * size_of(u32)),
@@ -168,7 +141,7 @@ r_submit :: proc() {
 }
 
 r_begin :: proc(command_buffer: vk.CommandBuffer, framebuffer: vk.Framebuffer) {
-	r := &state.renderer.ui
+	r := &vulkan.renderer.ui.ui_ctx
 	r.buf_idx = 0
 	r.prev_buf_idx = 0
 	r.current_command = command_buffer
@@ -177,26 +150,26 @@ r_begin :: proc(command_buffer: vk.CommandBuffer, framebuffer: vk.Framebuffer) {
 		sType = .RENDER_PASS_BEGIN_INFO,
 		renderPass = r.render_pass,
 		framebuffer = framebuffer,
-		renderArea = {extent = state.renderer.extent},
+		renderArea = {extent = vulkan.renderer.extent},
 	}
 	vk.CmdBeginRenderPass(command_buffer, &begin_info, .INLINE)
 	r_bind(command_buffer)
-	vulkan_set_scissor(
+	vulkan.vulkan_set_scissor(
 		command_buffer,
 		0,
 		0,
-		state.renderer.extent.width,
-		state.renderer.extent.height,
+		vulkan.renderer.extent.width,
+		vulkan.renderer.extent.height,
 	)
 }
 
 r_end :: proc() {
 	r_submit()
-	vk.CmdEndRenderPass(state.renderer.ui.current_command)
+	vk.CmdEndRenderPass(vulkan.renderer.ui.ui_ctx.current_command)
 }
 
 r_full_flush :: proc() {
-	r := &state.renderer.ui
+	r := &vulkan.renderer.ui.ui_ctx
 	r_submit()
 	r.buf_idx = 0
 	r.prev_buf_idx = 0
@@ -225,7 +198,7 @@ r_render :: proc(command_buffer: vk.CommandBuffer, framebuffer: vk.Framebuffer) 
 }
 
 push_quad :: proc(dst, src: mu.Rect, color: mu.Color) #no_bounds_check {
-	r := &state.renderer.ui
+	r := &vulkan.renderer.ui.ui_ctx
 	if r.buf_idx == BUFFER_SIZE {
 		r_full_flush()
 	}
@@ -289,13 +262,13 @@ r_draw_icon :: proc(id: mu.Icon, rect: mu.Rect, color: mu.Color) {
 }
 
 r_set_clip_rect :: proc(rect: mu.Rect) {
-	r := &state.renderer.ui
+	r := &vulkan.renderer.ui.ui_ctx
 	r_flush()
-	x := min(u32(max(rect.x, 0)), state.renderer.extent.width)
-	y := min(u32(max(rect.y, 0)), state.renderer.extent.height)
-	w := min(u32(max(rect.w, 0)), state.renderer.extent.width - x)
-	h := min(u32(max(rect.h, 0)), state.renderer.extent.height - y)
-	vulkan_set_scissor(r.current_command, x, y, w, h)
+	x := min(u32(max(rect.x, 0)), vulkan.renderer.extent.width)
+	y := min(u32(max(rect.y, 0)), vulkan.renderer.extent.height)
+	w := min(u32(max(rect.w, 0)), vulkan.renderer.extent.width - x)
+	h := min(u32(max(rect.h, 0)), vulkan.renderer.extent.height - y)
+	vulkan.vulkan_set_scissor(r.current_command, x, y, w, h)
 }
 
 demo_windows :: proc(ctx: ^mu.Context) {

@@ -1,12 +1,14 @@
-package main
+package vkapi
 
-import vma "../vendor/odin-vma"
+import vma "../../vendor/odin-vma"
+import "base:runtime"
 import "core:fmt"
 import sdl "vendor:sdl3"
 import vk "vendor:vulkan"
 
-vulkan_init :: proc() {
-	context = state.ctx
+vulkan_init :: proc(window: ^sdl.Window) {
+	// context = runtime.default_context()
+	renderer.window = window
 	if !sdl.Vulkan_LoadLibrary(nil) {
 		fmt.panicf("Failed to load Vulkan loader: %v", sdl.GetError())
 	}
@@ -15,11 +17,11 @@ vulkan_init :: proc() {
 		fmt.panicf("SDL_Vulkan_GetVkGetInstanceProcAddr failed: %v", sdl.GetError())
 	}
 	vk.load_proc_addresses_global(cast(rawptr)vk_proc)
-	r := &state.renderer
+	r := &renderer
 	vulkan_create_instance(r)
 	vk.load_proc_addresses_instance(r.instance)
 	vulkan_create_debug_messenger(r)
-	vulkan_create_surface(r)
+	vulkan_create_surface(r, window)
 	vulkan_pick_physical_device(r)
 	vulkan_create_device(r)
 	vulkan_create_descriptor_pool(r)
@@ -30,12 +32,9 @@ vulkan_init :: proc() {
 	vulkan_init_ui(r)
 	vulkan_create_swapchain_objects(r)
 	rebuild_shaders()
-	//Test voxel entry point
-
-	state.grid_size = {64, 64, 64}
-	vulkan_init_voxel_buffers(r, &state.voxel_ctx, state.grid_size)
-	vulkan_upload_test_voxels(r, &state.voxel_ctx, state.grid_size)
-	vulkan_create_compute_pipeline_for_voxels(r, &state.voxel_ctx)
+	for inits in r.init_proc {
+		inits(r)
+	}
 }
 
 vulkan_initialize_vma :: proc(r: ^vulkan_renderer) {
@@ -113,8 +112,8 @@ vulkan_create_instance :: proc(r: ^vulkan_renderer) {
 
 }
 
-vulkan_create_surface :: proc(r: ^vulkan_renderer) {
-	if !sdl.Vulkan_CreateSurface(state.window, r.instance, nil, &r.surface) {
+vulkan_create_surface :: proc(r: ^vulkan_renderer, window: ^sdl.Window) {
+	if !sdl.Vulkan_CreateSurface(window, r.instance, nil, &r.surface) {
 		fmt.panicf("Failed to create Vulkan surface: %v", sdl.GetError())
 	}
 }

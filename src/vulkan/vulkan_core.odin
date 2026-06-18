@@ -1,11 +1,11 @@
-package main
+package vkapi
 
-import vma "../vendor/odin-vma"
+import vma "../../vendor/odin-vma"
+import "../utils"
 import intrinsics "base:intrinsics"
 import "base:runtime"
 import "core:fmt"
 import "core:strings"
-import "utils"
 import sdl "vendor:sdl3"
 import vk "vendor:vulkan"
 
@@ -39,6 +39,15 @@ fullscreen_object :: struct {
 	descriptor_set:    vk.DescriptorSet,
 	descriptor_layout: vk.DescriptorSetLayout,
 }
+ui_ctx :: struct {
+	ui_ctx:          microui_ctx,
+	ui_write_consts: proc(),
+	ui_render:       proc(cmd: vk.CommandBuffer, image: vk.Framebuffer),
+}
+voxel_ctx :: struct {
+	image_blit: vulkan_image,
+	render:     proc(r: ^vulkan_renderer, cmd: vk.CommandBuffer),
+}
 vulkan_renderer :: struct {
 	instance:             vk.Instance,
 	debug_messenger:      vk.DebugUtilsMessengerEXT,
@@ -61,7 +70,6 @@ vulkan_renderer :: struct {
 	images_in_flight:     []vk.Fence,
 	fullscreen:           fullscreen_object,
 	framebuffers:         []vk.Framebuffer,
-	ui:                   microui_ctx,
 	command_pool:         vk.CommandPool,
 	command_buffers:      [MAX_FRAMES_IN_FLIGHT]vk.CommandBuffer,
 	image_available:      [MAX_FRAMES_IN_FLIGHT]vk.Semaphore,
@@ -69,7 +77,14 @@ vulkan_renderer :: struct {
 	in_flight:            [MAX_FRAMES_IN_FLIGHT]vk.Fence,
 	frame_index:          int,
 	framebuffer_resized:  bool,
+	unload_proc:          [dynamic]proc(r: ^vulkan_renderer),
+	init_proc:            [dynamic]proc(r: ^vulkan_renderer),
+	ui:                   ui_ctx,
+	voxel:                voxel_ctx,
+	window:               ^sdl.Window,
 }
+
+renderer: vulkan_renderer
 
 validation_enabled :: proc() -> bool {
 	when ODIN_DEBUG || (ODIN_OPTIMIZATION_MODE == .Minimal) {
@@ -127,6 +142,11 @@ debug_callback :: proc "system" (
 	return false
 }
 
+get_window_size :: proc() -> (w: i32, h: i32) {
+	width, height: i32
+	sdl.GetWindowSizeInPixels(renderer.window, &width, &height)
+	return width, height
+}
 vulkan_has_validation_layer :: proc() -> bool {
 	count: u32
 	VK_CHECK(
@@ -221,6 +241,7 @@ vulkan_create_buffer :: proc(
 	// fmt.println("Creating buffer of size %d", size)
 	// fmt.println("Buffer usage: %v", usage)
 	// fmt.println("Memory properties: %v", properties)
+	fmt.printfln("vma allocator: %p", r.allocator_vma)
 	VK_CHECK(
 		vma.CreateBuffer(
 			r.allocator_vma,

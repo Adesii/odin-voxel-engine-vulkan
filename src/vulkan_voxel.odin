@@ -6,6 +6,7 @@ import "core:math/rand"
 import "core:mem"
 import v "shaders/voxel_shader"
 import vk "vendor:vulkan"
+import "vulkan"
 
 
 Voxel :: struct {
@@ -13,13 +14,13 @@ Voxel :: struct {
 }
 
 Voxel_Buffer_Context :: struct {
-	uniform_buffer:          vulkan_buffer,
-	voxel_buffer:            vulkan_buffer,
+	uniform_buffer:          vulkan.vulkan_buffer,
+	voxel_buffer:            vulkan.vulkan_buffer,
 	descriptor_set:          vk.DescriptorSet,
 	descriptor_set_layout:   vk.DescriptorSetLayout,
 	compute_pipeline_layout: vk.PipelineLayout,
 	compute_pipeline:        vk.Pipeline,
-	blit_image:              vulkan_image,
+	blit_image:              vulkan.vulkan_image,
 }
 
 Camera :: struct {
@@ -30,13 +31,11 @@ Camera :: struct {
 	inv_view_proj:  matrix[4, 4]f32,
 }
 
-vulkan_init_voxel_buffers :: proc(
-	r: ^vulkan_renderer,
-	ctx: ^Voxel_Buffer_Context,
-	grid_size: [3]u32,
-) {
+vulkan_init_voxel_buffers :: proc(r: ^vulkan.vulkan_renderer) {
+	ctx := &state.voxel_ctx
+	grid_size := state.grid_size
 	// Create uniform buffer
-	ctx.uniform_buffer = vulkan_create_buffer(
+	ctx.uniform_buffer = vulkan.vulkan_create_buffer(
 		r,
 		v.VOXEL_UNIFORM_BUFFER_SIZE,
 		{.UNIFORM_BUFFER},
@@ -45,7 +44,7 @@ vulkan_init_voxel_buffers :: proc(
 
 	// Create voxel buffer (initially empty, will be updated each frame)
 	voxel_buffer_size := grid_size.x * grid_size.y * grid_size.z * size_of(Voxel)
-	ctx.voxel_buffer = vulkan_create_buffer(
+	ctx.voxel_buffer = vulkan.vulkan_create_buffer(
 		r,
 		int(voxel_buffer_size),
 		{.STORAGE_BUFFER, .TRANSFER_DST},
@@ -53,7 +52,7 @@ vulkan_init_voxel_buffers :: proc(
 	)
 
 	// Allocate descriptor set for the voxel shader
-	ctx.descriptor_set = vulkan_allocate_descriptor_set(
+	ctx.descriptor_set = vulkan.vulkan_allocate_descriptor_set(
 		r,
 		"voxel_shader",
 		{.COMPUTE},
@@ -64,7 +63,7 @@ vulkan_init_voxel_buffers :: proc(
 		},
 	)
 
-	image, alloc := vulkan_create_image(
+	image, alloc := vulkan.vulkan_create_image(
 		r,
 		r.extent.width,
 		r.extent.height,
@@ -73,7 +72,7 @@ vulkan_init_voxel_buffers :: proc(
 		{.DEVICE_LOCAL},
 	)
 	// Run this ONCE right after allocating your output storage image
-	cmd := vulkan_begin_single_use_commands(r)
+	cmd := vulkan.vulkan_begin_single_use_commands(r)
 
 	barrier := vk.ImageMemoryBarrier {
 		sType = .IMAGE_MEMORY_BARRIER,
@@ -106,7 +105,7 @@ vulkan_init_voxel_buffers :: proc(
 		&barrier,
 	)
 
-	vulkan_end_single_use_commands(r, cmd)
+	vulkan.vulkan_end_single_use_commands(r, cmd)
 
 	view_info := vk.ImageViewCreateInfo {
 		sType = .IMAGE_VIEW_CREATE_INFO,
@@ -122,18 +121,29 @@ vulkan_init_voxel_buffers :: proc(
 			layerCount = 1,
 		},
 	}
-	sampler := vulkan_create_sampler(r, .LINEAR, .CLAMP_TO_EDGE)
+	sampler := vulkan.vulkan_create_sampler(r, .LINEAR, .CLAMP_TO_EDGE)
 	view: vk.ImageView
-	VK_CHECK(vk.CreateImageView(r.device, &view_info, nil, &view), "vkCreateImageView")
-	ctx.blit_image = vulkan_image {
+	vulkan.VK_CHECK(vk.CreateImageView(r.device, &view_info, nil, &view), "vkCreateImageView")
+	ctx.blit_image = vulkan.vulkan_image {
 		image      = image,
 		allocation = alloc,
 		view       = view,
 		sampler    = sampler,
 	}
 	vulkan_update_voxel_descriptor_set(r, ctx)
+
+	vulkan.renderer.voxel.image_blit = ctx.blit_image
+	//Test voxel entry point
+
+	state.grid_size = {64, 64, 64}
+	vulkan_upload_test_voxels(r, &state.voxel_ctx, state.grid_size)
+	vulkan_create_compute_pipeline_for_voxels(r, &state.voxel_ctx)
+
 }
-vulkan_update_voxel_descriptor_set :: proc(r: ^vulkan_renderer, ctx: ^Voxel_Buffer_Context) {
+vulkan_update_voxel_descriptor_set :: proc(
+	r: ^vulkan.vulkan_renderer,
+	ctx: ^Voxel_Buffer_Context,
+) {
 	// 1. Point to your Uniform Buffer (Camera + Grid Size data)
 	uniform_buffer_info := vk.DescriptorBufferInfo {
 		buffer = ctx.uniform_buffer.buffer,
@@ -193,7 +203,7 @@ vulkan_update_voxel_descriptor_set :: proc(r: ^vulkan_renderer, ctx: ^Voxel_Buff
 
 
 vulkan_upload_test_voxels :: proc(
-	r: ^vulkan_renderer,
+	r: ^vulkan.vulkan_renderer,
 	ctx: ^Voxel_Buffer_Context,
 	grid_size: [3]u32,
 ) {
@@ -232,31 +242,31 @@ vulkan_upload_test_voxels :: proc(
 	// Upload data to GPU
 
 	voxel_buffer_size := int(total_voxels * size_of(Voxel))
-	staging_buffer := vulkan_create_buffer(
+	staging_buffer := vulkan.vulkan_create_buffer(
 		r,
 		voxel_buffer_size,
 		{.TRANSFER_SRC},
 		{.HOST_VISIBLE, .HOST_COHERENT},
 	)
 
-	vulkan_write_buffer(r, &staging_buffer, raw_data(cpu_data), voxel_buffer_size)
+	vulkan.vulkan_write_buffer(r, &staging_buffer, raw_data(cpu_data), voxel_buffer_size)
 
-	cmd := vulkan_begin_single_use_commands(r)
+	cmd := vulkan.vulkan_begin_single_use_commands(r)
 	copy_region := vk.BufferCopy {
 		srcOffset = 0,
 		dstOffset = 0,
 		size      = vk.DeviceSize(voxel_buffer_size),
 	}
 	vk.CmdCopyBuffer(cmd, staging_buffer.buffer, ctx.voxel_buffer.buffer, 1, &copy_region)
-	vulkan_end_single_use_commands(r, cmd)
+	vulkan.vulkan_end_single_use_commands(r, cmd)
 
-	vulkan_destroy_buffer(r, &staging_buffer)
+	vulkan.vulkan_destroy_buffer(r, &staging_buffer)
 
 }
 
 
 vulkan_update_voxel_uniforms :: proc(
-	r: ^vulkan_renderer,
+	r: ^vulkan.vulkan_renderer,
 	ctx: ^Voxel_Buffer_Context,
 	camera: Camera,
 	grid_size: [3]u32,
@@ -283,10 +293,10 @@ vulkan_update_voxel_uniforms :: proc(
 }
 
 vulkan_create_compute_pipeline_for_voxels :: proc(
-	r: ^vulkan_renderer,
+	r: ^vulkan.vulkan_renderer,
 	ctx: ^Voxel_Buffer_Context,
 ) {
-	ctx.compute_pipeline_layout = vulkan_create_pipeline_layout(
+	ctx.compute_pipeline_layout = vulkan.vulkan_create_pipeline_layout(
 		r,
 		"voxel",
 		{.COMPUTE},
@@ -297,7 +307,7 @@ vulkan_create_compute_pipeline_for_voxels :: proc(
 		},
 	)
 
-	ctx.compute_pipeline = vulkan_create_compute_pipeline(
+	ctx.compute_pipeline = vulkan.vulkan_create_compute_pipeline(
 		r,
 		v.VOXEL_MAIN_ENTRY_POINT,
 		"voxel",
@@ -305,13 +315,10 @@ vulkan_create_compute_pipeline_for_voxels :: proc(
 	)
 }
 
-vulkan_run :: proc(
-	r: ^vulkan_renderer,
-	ctx: ^Voxel_Buffer_Context,
-	camera: Camera,
-	grid_size: [3]u32,
-	cmd: vk.CommandBuffer,
-) {
+vulkan_run :: proc(r: ^vulkan.vulkan_renderer, cmd: vk.CommandBuffer) {
+	ctx := &state.voxel_ctx
+	camera := state.camera
+	grid_size := state.grid_size
 	vulkan_update_voxel_uniforms(r, ctx, camera, grid_size)
 
 	// Record and submit compute command buffer
