@@ -18,6 +18,9 @@ VertexOutput vs_main(uint vertexID: SV_VertexID) {
   VertexOutput output;
   output.position = float4(positions[vertexID], 0.0, 1.0);
   output.color = colors[vertexID];
+  // printf("Vertex ID: %u, Position: (%f, %f), Color: (%f, %f, %f, %f)\n",
+  //        vertexID, output.position.x, output.position.y, output.color.r,
+  //        output.color.g, output.color.b, output.color.a);
   return output;
 }
 

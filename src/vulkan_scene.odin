@@ -1,6 +1,7 @@
 package main
 
 import "core:fmt"
+import "shaders/default_shader"
 import compiler "utils"
 import "utils"
 import sdl "vendor:sdl3"
@@ -68,13 +69,13 @@ vulkan_create_pipeline :: proc(r: ^vulkan_renderer) {
 		sType  = .PIPELINE_SHADER_STAGE_CREATE_INFO,
 		stage  = {.VERTEX},
 		module = r.vert_module,
-		pName  = cstring("vs_main"),
+		pName  = cstring(default_shader.DEFAULT_VS_MAIN_ENTRY_POINT),
 	}
 	frag_stage := vk.PipelineShaderStageCreateInfo {
 		sType  = .PIPELINE_SHADER_STAGE_CREATE_INFO,
 		stage  = {.FRAGMENT},
 		module = r.frag_module,
-		pName  = cstring("fs_main"),
+		pName  = cstring(default_shader.DEFAULT_FS_MAIN_ENTRY_POINT),
 	}
 	shader_stages := [2]vk.PipelineShaderStageCreateInfo{vert_stage, frag_stage}
 
@@ -275,6 +276,9 @@ vulkan_finish :: proc() {
 	}
 	if r.command_pool != {} {
 		vk.DestroyCommandPool(r.device, r.command_pool, nil)
+	}
+	if r.descriptor_pool != {} {
+		vk.DestroyDescriptorPool(r.device, r.descriptor_pool, nil)
 	}
 	if r.device != {} {
 		vk.DestroyDevice(r.device, nil)

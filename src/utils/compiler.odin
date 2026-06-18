@@ -18,6 +18,9 @@ compile :: proc(srcdir: string, destdir: string) {
 		fmt.panicf("Failed to read directory: %s", err)
 	}
 	for file in &fileinfos {
+		if os.is_dir(file.fullpath) {
+			continue
+		}
 		fmt.printfln("Found File: %s", file.fullpath)
 		thing := strings.split(file.name, ".")
 		defer delete(thing)
@@ -31,13 +34,18 @@ compile_file :: proc(filename: string, input_file: string, output_dir: string) {
 	defer delete(shader_name)
 	reflection_name := strings.join({output_dir, filename, ".json"}, "")
 	defer delete(reflection_name)
+	profile_string := "glsl_460"
+	when ODIN_DEBUG {
+		profile_string = strings.join({profile_string, "+SPV_KHR_non_semantic_info"}, "")
+		defer delete(profile_string)
+	}
 	process_info := os.Process_Desc {
 		command = []string {
 			"slangc",
 			"-target",
 			"spirv",
 			"-profile",
-			"glsl_460",
+			profile_string,
 			"-reflection-json",
 			reflection_name,
 			"-o",

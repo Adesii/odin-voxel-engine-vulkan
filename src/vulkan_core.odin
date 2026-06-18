@@ -4,6 +4,7 @@ import vma "../vendor/odin-vma"
 import intrinsics "base:intrinsics"
 import "base:runtime"
 import "core:fmt"
+import "core:strings"
 import sdl "vendor:sdl3"
 import vk "vendor:vulkan"
 
@@ -34,6 +35,7 @@ vulkan_renderer :: struct {
 	present_queue:        vk.Queue,
 	graphics_queue_index: u32,
 	present_queue_index:  u32,
+	descriptor_pool:      vk.DescriptorPool,
 	surface_format:       vk.SurfaceFormatKHR,
 	present_mode:         vk.PresentModeKHR,
 	extent:               vk.Extent2D,
@@ -74,11 +76,42 @@ debug_callback :: proc "system" (
 	context = runtime.default_context()
 	_ = messageTypes
 	_ = pUserData
-	message := "<null>"
-	if pCallbackData != nil && pCallbackData.pMessage != nil {
-		message = string(pCallbackData.pMessage)
+
+	if pCallbackData != nil {
+		// 1. Authenticate the exact Debug Printf magic number hash
+		if pCallbackData.messageIdNumber == 0x4fe1fef9 {
+			raw_str := string(pCallbackData.pMessage)
+
+			// Find where the message text starts after the boilerplate header
+			// The validation layers append "DebugPrintf:\n" right before your text
+			target_marker := "DebugPrintf:\n"
+			if index := strings.index(raw_str, target_marker); index != -1 {
+				clean_msg := raw_str[index + len(target_marker):]
+
+				// Print just the beautiful, un-padded shader data
+				fmt.printf("[Vulkan PRINT] %s", clean_msg)
+				return false
+			}
+		}
 	}
-	fmt.eprintf("[vulkan %v] %s\n", messageSeverity, message)
+
+	// 2. Fallback logger for actual Vulkan warnings and errors
+	message :=
+		pCallbackData != nil && pCallbackData.pMessage != nil ? string(pCallbackData.pMessage) : "<null>"
+	severity_str: string
+	for flag in messageSeverity {
+		switch flag {
+		case .INFO:
+			severity_str = "INFO"
+		case .WARNING:
+			severity_str = "WARNING"
+		case .ERROR:
+			severity_str = "ERROR"
+		case .VERBOSE:
+			severity_str = "VERBOSE"
+		}
+	}
+	fmt.eprintf("[Vulkan %v] %s\n", severity_str, message)
 	return false
 }
 
@@ -112,7 +145,7 @@ vulkan_create_debug_messenger :: proc(r: ^vulkan_renderer) {
 	}
 	create_info := vk.DebugUtilsMessengerCreateInfoEXT {
 		sType           = .DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
-		messageSeverity = {.WARNING, .ERROR},
+		messageSeverity = {.INFO, .WARNING, .ERROR},
 		messageType     = {.GENERAL, .VALIDATION, .PERFORMANCE},
 		pfnUserCallback = debug_callback,
 	}
@@ -211,6 +244,50 @@ vulkan_write_buffer :: proc(
 	VK_CHECK(vma.MapMemory(r.allocator_vma, buffer.allocation, &mapped), "vkMapMemory")
 	intrinsics.mem_copy_non_overlapping(mapped, data, size)
 	vma.UnmapMemory(r.allocator_vma, buffer.allocation)
+}
+
+
+vulkan_allocate_descriptor_set :: proc(
+	r: ^vulkan_renderer,
+	shader_name: string,
+	bindings: []struct {
+		binding: u32,
+		type:    vk.DescriptorType,
+	},
+) -> vk.DescriptorSet {
+	layout_bindings := make([]vk.DescriptorSetLayoutBinding, len(bindings), context.allocator)
+	defer delete(layout_bindings)
+	for i, b in bindings {
+		layout_bindings[b] = vk.DescriptorSetLayoutBinding {
+			binding         = i.binding,
+			descriptorType  = i.type,
+			descriptorCount = 1,
+			stageFlags      = {.VERTEX, .FRAGMENT},
+		}
+	}
+	layout_info := vk.DescriptorSetLayoutCreateInfo {
+		sType        = .DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+		bindingCount = u32(len(layout_bindings)),
+		pBindings    = raw_data(layout_bindings),
+	}
+	layout: vk.DescriptorSetLayout
+	VK_CHECK(
+		vk.CreateDescriptorSetLayout(r.device, &layout_info, nil, &layout),
+		fmt.tprintf("vkCreateDescriptorSetLayout(%s)", shader_name),
+	)
+
+	alloc_info := vk.DescriptorSetAllocateInfo {
+		sType              = .DESCRIPTOR_SET_ALLOCATE_INFO,
+		descriptorPool     = r.descriptor_pool,
+		descriptorSetCount = 1,
+		pSetLayouts        = &layout,
+	}
+	set: vk.DescriptorSet
+	VK_CHECK(
+		vk.AllocateDescriptorSets(r.device, &alloc_info, &set),
+		fmt.tprintf("vkAllocateDescriptorSets(%s)", shader_name),
+	)
+	return set
 }
 
 vulkan_set_scissor :: proc(command_buffer: vk.CommandBuffer, x, y, w, h: u32) {

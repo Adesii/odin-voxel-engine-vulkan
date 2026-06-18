@@ -22,6 +22,7 @@ vulkan_init :: proc() {
 	vulkan_create_surface(r)
 	vulkan_pick_physical_device(r)
 	vulkan_create_device(r)
+	vulkan_create_descriptor_pool(r)
 	vk.load_proc_addresses_device(r.device)
 	vulkan_create_command_pool(r)
 	vulkan_create_sync_objects(r)
@@ -56,17 +57,14 @@ vulkan_create_instance :: proc(r: ^vulkan_renderer) {
 	if ext_ptr == nil || ext_count == 0 {
 		fmt.panicf("Failed to query Vulkan instance extensions: %v", sdl.GetError())
 	}
-	extra_extensions := 0
-	if validation_enabled() {
-		extra_extensions = 1
-	}
-	extensions := make([]cstring, int(ext_count) + extra_extensions, context.allocator)
+	extensions := make([dynamic]cstring, int(ext_count), context.allocator)
 	defer delete(extensions)
 	for i in 0 ..< int(ext_count) {
-		extensions[i] = ext_ptr[i]
+		extensions[i] = cstring(ext_ptr[i])
 	}
 	if validation_enabled() {
-		extensions[len(extensions) - 1] = cstring(vk.EXT_DEBUG_UTILS_EXTENSION_NAME)
+		append(&extensions, cstring(vk.EXT_DEBUG_UTILS_EXTENSION_NAME))
+		append(&extensions, cstring(vk.EXT_DEBUG_REPORT_EXTENSION_NAME))
 	}
 
 	enabled_layers: []cstring
@@ -94,6 +92,16 @@ vulkan_create_instance :: proc(r: ^vulkan_renderer) {
 		ppEnabledLayerNames     = raw_data(enabled_layers),
 		enabledExtensionCount   = u32(len(extensions)),
 		ppEnabledExtensionNames = raw_data(extensions),
+	}
+	when ODIN_DEBUG {
+		enabled_features := [1]vk.ValidationFeatureEnableEXT{.DEBUG_PRINTF}
+		validation_features := vk.ValidationFeaturesEXT {
+			sType                         = .VALIDATION_FEATURES_EXT,
+			enabledValidationFeatureCount = 1,
+			pEnabledValidationFeatures    = &enabled_features[0],
+		}
+		create_info.pNext = &validation_features
+
 	}
 	VK_CHECK(vk.CreateInstance(&create_info, nil, &r.instance), "vkCreateInstance")
 
@@ -241,6 +249,25 @@ vulkan_query_swapchain_support :: proc(
 	return support
 }
 
+vulkan_create_descriptor_pool :: proc(r: ^vulkan_renderer) {
+	pool_sizes := [2]vk.DescriptorPoolSize {
+		{
+			type            = .UNIFORM_BUFFER,
+			descriptorCount = 100, // Arbitrary large number for simplicity
+		},
+		{type = .STORAGE_BUFFER, descriptorCount = 100},
+	}
+	create_info := vk.DescriptorPoolCreateInfo {
+		sType         = .DESCRIPTOR_POOL_CREATE_INFO,
+		maxSets       = 100, // Arbitrary large number for simplicity
+		poolSizeCount = u32(len(pool_sizes)),
+		pPoolSizes    = &pool_sizes[0],
+	}
+	VK_CHECK(
+		vk.CreateDescriptorPool(r.device, &create_info, nil, &r.descriptor_pool),
+		"vkCreateDescriptorPool",
+	)
+}
 vulkan_create_device :: proc(r: ^vulkan_renderer) {
 	queue_priority := f32(1)
 	queue_infos: [2]vk.DeviceQueueCreateInfo
@@ -264,14 +291,28 @@ vulkan_create_device :: proc(r: ^vulkan_renderer) {
 		sType                = .PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
 		shaderDrawParameters = true,
 	}
-	device_extensions := [?]cstring{vk.KHR_SWAPCHAIN_EXTENSION_NAME}
+	features: vk.PhysicalDeviceFeatures
+	when ODIN_DEBUG {
+		features = vk.PhysicalDeviceFeatures {
+			vertexPipelineStoresAndAtomics = true,
+			fragmentStoresAndAtomics       = true,
+			shaderInt16                    = true,
+			shaderInt64                    = true,
+		}
+	}
+	name := cstring(vk.KHR_SWAPCHAIN_EXTENSION_NAME)
+	// when ODIN_DEBUG {
+	// 	append(&device_extensions, cstring(vk.EXT_DEBUG_MARKER_EXTENSION_NAME))
+	// }
+
 	create_info := vk.DeviceCreateInfo {
 		sType                   = .DEVICE_CREATE_INFO,
 		pNext                   = &vulkan11_features,
 		queueCreateInfoCount    = u32(queue_info_count),
 		pQueueCreateInfos       = &queue_infos[0],
-		enabledExtensionCount   = 1,
-		ppEnabledExtensionNames = &device_extensions[0],
+		enabledExtensionCount   = u32(1),
+		ppEnabledExtensionNames = &name,
+		pEnabledFeatures        = &features,
 	}
 	VK_CHECK(vk.CreateDevice(r.physical_device, &create_info, nil, &r.device), "vkCreateDevice")
 	vk.GetDeviceQueue(r.device, r.graphics_queue_index, 0, &r.graphics_queue)
