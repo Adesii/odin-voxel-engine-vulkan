@@ -36,11 +36,11 @@ uniform RWTexture2D<float4> g_outputFramebuffer;
 // voxel.slang
 
 Ray generate_camera_ray(uint2 pixelCoord, float2 screenSize) {
-  float2 ndc = (float2(pixelCoord) / screenSize) * 2.0 - 1.0;
+  float2 ndc = ((float2(pixelCoord) + 0.5) / screenSize) * 2.0 - 1.0;
   ndc.y = -ndc.y; // Match Vulkan Y axis configuration
 
-  // Un-project a clip space coordinate on the near plane (z = 0.0)
-  float4 clipTarget = float4(ndc.x, ndc.y, 0.0, 1.0);
+  // Un-project a clip space coordinate on the near plane.
+  float4 clipTarget = float4(ndc.x, ndc.y, -1.0, 1.0);
 
   // Multiply target by your layout-aligned inverse view-proj matrix
   float4 worldTarget = mul(g_camera.invViewProj, clipTarget);
@@ -81,7 +81,7 @@ void main(uint3 dispatchThreadID: SV_DispatchThreadID) {
   float t = 0.0;
   float max_dist = 200.0; // How far the camera can see
   float step_size =
-      0.1; // Smaller = sharper voxels, larger = faster performance
+      0.05; // Smaller = sharper voxels, larger = faster performance
 
   float4 finalColor = float4(0.2, 0.4, 0.6, 1.0); // Default sky bluebackground
 

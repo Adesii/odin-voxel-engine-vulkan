@@ -204,9 +204,9 @@ run_game :: proc() {
 
 rotate_camera :: proc(xrel: f32, yrel: f32) {
 	sensitivity: f32 = 0.01
-	// Update camera rotation based on mouse movement
-	state.camera.rotation_thing.x += xrel * sensitivity
-	state.camera.rotation_thing.y += yrel * sensitivity
+	// Yaw is applied around world up, pitch around the yawed camera right axis.
+	state.camera.rotation_thing.x -= xrel * sensitivity
+	state.camera.rotation_thing.y -= yrel * sensitivity
 	//clamp the vertical rotation to avoid flipping
 	if state.camera.rotation_thing.y > math.PI / 2 {
 		state.camera.rotation_thing.y = math.PI / 2
@@ -214,16 +214,33 @@ rotate_camera :: proc(xrel: f32, yrel: f32) {
 		state.camera.rotation_thing.y = -math.PI / 2
 	}
 
-	state.camera.rotation = lina.quaternion_from_euler_angles_f32(
-		(state.camera.rotation_thing.y),
-		(state.camera.rotation_thing.x),
-		0,
-		.XYZ,
-	)
+	yaw_rotation := lina.quaternion_angle_axis(state.camera.rotation_thing.x, [3]f32{0, 1, 0})
+	pitch_axis := lina.quaternion128_mul_vector3(yaw_rotation, [3]f32{1, 0, 0})
+	pitch_rotation := lina.quaternion_angle_axis(state.camera.rotation_thing.y, pitch_axis)
+	state.camera.rotation = pitch_rotation * yaw_rotation
 }
+
+camera_forward :: proc(rotation: quaternion128) -> [3]f32 {
+	return lina.quaternion128_mul_vector3(rotation, [3]f32{0, 0, -1})
+}
+
+camera_right :: proc(rotation: quaternion128) -> [3]f32 {
+	return lina.quaternion128_mul_vector3(rotation, [3]f32{1, 0, 0})
+}
+
+camera_up :: proc(rotation: quaternion128) -> [3]f32 {
+	return lina.quaternion128_mul_vector3(rotation, [3]f32{0, 1, 0})
+}
+
 camera_controls :: proc(dt: f32) {
 	speed := 100.0 * dt / 1000.0
+	if held_keys_map[sdl.K_LSHIFT] {
+		speed *= 5
+	}
 
+	forward := camera_forward(state.camera.rotation)
+	right := camera_right(state.camera.rotation)
+	up := camera_up(state.camera.rotation)
 	movement_vector := [3]f32{0, 0, 0}
 	for key, v in held_keys_map {
 		if !v {
@@ -231,40 +248,31 @@ camera_controls :: proc(dt: f32) {
 		}
 		switch key {
 		case sdl.K_W:
-			movement_vector.z -= speed
+			movement_vector += forward * speed
 		case sdl.K_S:
-			movement_vector.z += speed
+			movement_vector -= forward * speed
 		case sdl.K_A:
-			movement_vector.x -= speed
+			movement_vector -= right * speed
 		case sdl.K_D:
-			movement_vector.x += speed
+			movement_vector += right * speed
 		case sdl.K_Q:
-			movement_vector.y -= speed
+			movement_vector -= up * speed
 		case sdl.K_E:
-			movement_vector.y += speed
+			movement_vector += up * speed
 		}
 	}
-	rotation_quat := lina.quaternion_from_euler_angles_f32(
-		(-state.camera.rotation_thing.y),
-		(-state.camera.rotation_thing.x),
-		0,
-		.XYZ,
-	)
-	//Rotate movement vector by camera rotation
-	state.camera.position += lina.quaternion128_mul_vector3(rotation_quat, movement_vector)
+	state.camera.position += movement_vector
 }
 
 update_camera :: proc(dt: f32) {
 	camera_controls(dt)
 	aspect_ratio := f32(state.renderer.extent.width) / f32(state.renderer.extent.height)
 
-	// 1. Generate standard projection and view matrices
-	proj := lina.matrix4_perspective(90, aspect_ratio, 0.1, 10000)
-	rot_m4 := lina.matrix4_from_quaternion(state.camera.rotation)
+	proj := lina.matrix4_perspective(math.to_radians(f32(90.0)), aspect_ratio, 0.1, 10000)
+	rot_m4 := lina.matrix4_from_quaternion(lina.quaternion_inverse(state.camera.rotation))
 	trans_m4 := lina.matrix4_translate(-state.camera.position)
 	view := rot_m4 * trans_m4
 
-	// 2. Combine them normally
 	state.camera.view_proj = proj * view
 	state.camera.inv_view_proj = lina.matrix4_inverse(state.camera.view_proj)
 

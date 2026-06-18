@@ -2,6 +2,7 @@ package main
 
 import vma "../vendor/odin-vma"
 import "core:fmt"
+import "core:math/rand"
 import "core:mem"
 import v "shaders/voxel_shader"
 import vk "vendor:vulkan"
@@ -214,8 +215,12 @@ vulkan_upload_test_voxels :: proc(
 				dist := dx * dx + dy * dy + dz * dz
 
 				if dist < radius * radius {
-					// Solid white sphere voxel
-					cpu_data[idx].color = 0xFFFFFFFF
+					random_color := u32(
+						((u32(rand.float32_range(0, 1) * 255)) << 16) |
+						((u32(rand.float32_range(0, 1) * 255)) << 8) |
+						(u32(rand.float32_range(0, 1) * 255)),
+					)
+					cpu_data[idx].color = 0xFF000000 | random_color // Opaque with random RGB
 				} else {
 					// Empty space voxel
 					cpu_data[idx].color = 0x00000000
