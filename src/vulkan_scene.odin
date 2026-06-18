@@ -36,21 +36,21 @@ rebuild_shaders :: proc() {
 
 	_ = vk.DeviceWaitIdle(r.device)
 
-	if r.pipeline != {} {
-		vk.DestroyPipeline(r.device, r.pipeline, nil)
-		r.pipeline = {}
+	if r.fullscreen.pipeline != {} {
+		vk.DestroyPipeline(r.device, r.fullscreen.pipeline, nil)
+		r.fullscreen.pipeline = {}
 	}
-	if r.pipeline_layout != {} {
-		vk.DestroyPipelineLayout(r.device, r.pipeline_layout, nil)
-		r.pipeline_layout = {}
+	if r.fullscreen.pipeline_layout != {} {
+		vk.DestroyPipelineLayout(r.device, r.fullscreen.pipeline_layout, nil)
+		r.fullscreen.pipeline_layout = {}
 	}
-	if r.vert_module != {} {
-		vk.DestroyShaderModule(r.device, r.vert_module, nil)
-		r.vert_module = {}
+	if r.fullscreen.vert_module != {} {
+		vk.DestroyShaderModule(r.device, r.fullscreen.vert_module, nil)
+		r.fullscreen.vert_module = {}
 	}
-	if r.frag_module != {} {
-		vk.DestroyShaderModule(r.device, r.frag_module, nil)
-		r.frag_module = {}
+	if r.fullscreen.frag_module != {} {
+		vk.DestroyShaderModule(r.device, r.fullscreen.frag_module, nil)
+		r.fullscreen.frag_module = {}
 	}
 
 	vertex_code := compiler.load_shader_bytes("default.spirv")
@@ -58,8 +58,8 @@ rebuild_shaders :: proc() {
 	fragment_code := compiler.load_shader_bytes("default.spirv")
 	defer delete(fragment_code)
 
-	r.vert_module = vulkan_create_shader_module(vertex_code)
-	r.frag_module = vulkan_create_shader_module(fragment_code)
+	r.fullscreen.vert_module = vulkan_create_shader_module(vertex_code)
+	r.fullscreen.frag_module = vulkan_create_shader_module(fragment_code)
 	vulkan_create_pipeline(r)
 	vulkan_rebuild_ui_pipeline(r)
 }
@@ -68,13 +68,13 @@ vulkan_create_pipeline :: proc(r: ^vulkan_renderer) {
 	vert_stage := vk.PipelineShaderStageCreateInfo {
 		sType  = .PIPELINE_SHADER_STAGE_CREATE_INFO,
 		stage  = {.VERTEX},
-		module = r.vert_module,
+		module = r.fullscreen.vert_module,
 		pName  = cstring(default_shader.DEFAULT_VS_MAIN_ENTRY_POINT),
 	}
 	frag_stage := vk.PipelineShaderStageCreateInfo {
 		sType  = .PIPELINE_SHADER_STAGE_CREATE_INFO,
 		stage  = {.FRAGMENT},
-		module = r.frag_module,
+		module = r.fullscreen.frag_module,
 		pName  = cstring(default_shader.DEFAULT_FS_MAIN_ENTRY_POINT),
 	}
 	shader_stages := [2]vk.PipelineShaderStageCreateInfo{vert_stage, frag_stage}
@@ -123,12 +123,51 @@ vulkan_create_pipeline :: proc(r: ^vulkan_renderer) {
 		attachmentCount = 1,
 		pAttachments    = &color_blend_attachment,
 	}
-	layout_info := vk.PipelineLayoutCreateInfo {
-		sType = .PIPELINE_LAYOUT_CREATE_INFO,
+
+	descriptor_set_layout_binding := vk.DescriptorSetLayoutBinding {
+		binding         = 0,
+		descriptorType  = .COMBINED_IMAGE_SAMPLER,
+		descriptorCount = 1,
+		stageFlags      = {.FRAGMENT},
+	}
+	descriptor_set_layout_create_info := [1]vk.DescriptorSetLayoutCreateInfo {
+		{
+			sType = .DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+			bindingCount = 1,
+			pBindings = &descriptor_set_layout_binding,
+		},
 	}
 	VK_CHECK(
-		vk.CreatePipelineLayout(r.device, &layout_info, nil, &r.pipeline_layout),
+		vk.CreateDescriptorSetLayout(
+			r.device,
+			&descriptor_set_layout_create_info[0],
+			nil,
+			&r.fullscreen.descriptor_layout,
+		),
+		"vkCreateDescriptorSetLayout",
+	)
+	layout_info := vk.PipelineLayoutCreateInfo {
+		sType          = .PIPELINE_LAYOUT_CREATE_INFO,
+		setLayoutCount = 1,
+		pSetLayouts    = &r.fullscreen.descriptor_layout,
+	}
+	VK_CHECK(
+		vk.CreatePipelineLayout(r.device, &layout_info, nil, &r.fullscreen.pipeline_layout),
 		"vkCreatePipelineLayout",
+	)
+	descriptor_set_allocate_info := vk.DescriptorSetAllocateInfo {
+		sType              = .DESCRIPTOR_SET_ALLOCATE_INFO,
+		descriptorPool     = r.descriptor_pool,
+		descriptorSetCount = 1,
+		pSetLayouts        = &r.fullscreen.descriptor_layout,
+	}
+	VK_CHECK(
+		vk.AllocateDescriptorSets(
+			r.device,
+			&descriptor_set_allocate_info,
+			&r.fullscreen.descriptor_set,
+		),
+		"vkAllocateDescriptorSets",
 	)
 	create_info := vk.GraphicsPipelineCreateInfo {
 		sType               = .GRAPHICS_PIPELINE_CREATE_INFO,
@@ -140,14 +179,33 @@ vulkan_create_pipeline :: proc(r: ^vulkan_renderer) {
 		pRasterizationState = &rasterizer,
 		pMultisampleState   = &multisampling,
 		pColorBlendState    = &color_blending,
-		layout              = r.pipeline_layout,
-		renderPass          = r.render_pass,
+		layout              = r.fullscreen.pipeline_layout,
+		renderPass          = r.fullscreen.render_pass,
 		subpass             = 0,
 	}
 	VK_CHECK(
-		vk.CreateGraphicsPipelines(r.device, {}, 1, &create_info, nil, &r.pipeline),
+		vk.CreateGraphicsPipelines(r.device, {}, 1, &create_info, nil, &r.fullscreen.pipeline),
 		"vkCreateGraphicsPipelines",
 	)
+
+}
+
+
+bind_fullscreen_descriptors :: proc(r: ^vulkan_renderer) {
+	image_info := vk.DescriptorImageInfo {
+		sampler     = state.voxel_ctx.blit_image.sampler,
+		imageView   = state.voxel_ctx.blit_image.view,
+		imageLayout = .SHADER_READ_ONLY_OPTIMAL,
+	}
+	write_descriptor := vk.WriteDescriptorSet {
+		sType           = .WRITE_DESCRIPTOR_SET,
+		dstSet          = r.fullscreen.descriptor_set,
+		dstBinding      = 0, // Matches your shader layout binding
+		descriptorCount = 1,
+		descriptorType  = .COMBINED_IMAGE_SAMPLER,
+		pImageInfo      = &image_info,
+	}
+	vk.UpdateDescriptorSets(r.device, 1, &write_descriptor, 0, nil)
 }
 
 vulkan_record_command_buffer :: proc(
@@ -155,6 +213,7 @@ vulkan_record_command_buffer :: proc(
 	command_buffer: vk.CommandBuffer,
 	image_index: u32,
 ) {
+
 	VK_CHECK(vk.ResetCommandBuffer(command_buffer, {}), "vkResetCommandBuffer")
 	begin_info := vk.CommandBufferBeginInfo {
 		sType = .COMMAND_BUFFER_BEGIN_INFO,
@@ -166,17 +225,56 @@ vulkan_record_command_buffer :: proc(
 	}
 	render_pass_info := vk.RenderPassBeginInfo {
 		sType = .RENDER_PASS_BEGIN_INFO,
-		renderPass = r.render_pass,
+		renderPass = r.fullscreen.render_pass,
 		framebuffer = r.framebuffers[image_index],
 		renderArea = {extent = r.extent},
 		clearValueCount = 1,
 		pClearValues = &clear_value,
 	}
+	vulkan_run(r, &state.voxel_ctx, state.camera, state.grid_size, command_buffer)
 	vk.CmdBeginRenderPass(command_buffer, &render_pass_info, .INLINE)
-	vk.CmdBindPipeline(command_buffer, .GRAPHICS, r.pipeline)
-	vk.CmdDraw(command_buffer, 3, 1, 0, 0)
+	bind_fullscreen_descriptors(r)
+	vk.CmdBindPipeline(command_buffer, .GRAPHICS, r.fullscreen.pipeline)
+	vk.CmdBindDescriptorSets(
+		command_buffer,
+		.GRAPHICS,
+		r.fullscreen.pipeline_layout,
+		0,
+		1,
+		&r.fullscreen.descriptor_set,
+		0,
+		nil,
+	)
+	vk.CmdDraw(command_buffer, 6, 1, 0, 0)
 	vk.CmdEndRenderPass(command_buffer)
+
 	r_render(command_buffer, r.ui.framebuffers[image_index])
+
+	// 4. Transition compute texture back to GENERAL layout so next frame can write to it again
+	reset_barrier := vk.ImageMemoryBarrier {
+		sType = .IMAGE_MEMORY_BARRIER,
+		oldLayout = .SHADER_READ_ONLY_OPTIMAL,
+		newLayout = .GENERAL,
+		image = state.voxel_ctx.blit_image.image,
+		subresourceRange = {aspectMask = {.COLOR}, levelCount = 1, layerCount = 1},
+		srcAccessMask = {.SHADER_READ},
+		dstAccessMask = {.SHADER_WRITE},
+	}
+	vk.CmdPipelineBarrier(
+		command_buffer,
+		{.FRAGMENT_SHADER},
+		{.COMPUTE_SHADER},
+		{},
+		0,
+		nil,
+		0,
+		nil,
+		1,
+		&reset_barrier,
+	)
+
+	// Now you can safely end your command buffer and call vkQueueSubmit + vkQueuePresentKHR!
+
 	VK_CHECK(vk.EndCommandBuffer(command_buffer), "vkEndCommandBuffer")
 }
 
@@ -257,11 +355,11 @@ vulkan_finish :: proc() {
 		_ = vk.DeviceWaitIdle(r.device)
 	}
 	vulkan_destroy_swapchain_objects(r)
-	if r.vert_module != {} {
-		vk.DestroyShaderModule(r.device, r.vert_module, nil)
+	if r.fullscreen.vert_module != {} {
+		vk.DestroyShaderModule(r.device, r.fullscreen.vert_module, nil)
 	}
-	if r.frag_module != {} {
-		vk.DestroyShaderModule(r.device, r.frag_module, nil)
+	if r.fullscreen.frag_module != {} {
+		vk.DestroyShaderModule(r.device, r.fullscreen.frag_module, nil)
 	}
 	vulkan_shutdown_ui(r)
 	for semaphore in r.image_available {

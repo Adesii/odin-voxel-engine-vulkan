@@ -4,3 +4,4 @@ package default_shader
 // --- DEFAULT Pipeline Constants ---
 DEFAULT_VS_MAIN_ENTRY_POINT :: "vs_main"
 DEFAULT_FS_MAIN_ENTRY_POINT :: "fs_main"
+DEFAULT_BINDING_G_TEXTURE :: 0

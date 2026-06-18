@@ -1,6 +1,22 @@
 {
     "parameters": [
-
+        {
+            "name": "g_texture",
+            "binding": {"kind": "descriptorTableSlot", "index": 0},
+            "type": {
+                "kind": "resource",
+                "baseShape": "texture2D",
+                "combined": true,
+                "resultType": {
+                    "kind": "vector",
+                    "elementCount": 4,
+                    "elementType": {
+                        "kind": "scalar",
+                        "scalarType": "float32"
+                    }
+                }
+            }
+        }
     ],
     "entryPoints": [
         {
@@ -36,10 +52,10 @@
                             "semanticName": "SV_POSITION"
                         },
                         {
-                            "name": "color",
+                            "name": "uv",
                             "type": {
                                 "kind": "vector",
-                                "elementCount": 4,
+                                "elementCount": 2,
                                 "elementType": {
                                     "kind": "scalar",
                                     "scalarType": "float32"
@@ -47,13 +63,16 @@
                             },
                             "stage": "vertex",
                             "binding": {"kind": "varyingOutput", "index": 0},
-                            "semanticName": "COLOR"
+                            "semanticName": "TEXCOORD"
                         }
                     ]
                 }
             },
             "bindings": [
-
+                {
+                    "name": "g_texture",
+                    "binding": {"kind": "descriptorTableSlot", "index": 0}
+                }
             ]
         },
         {
@@ -81,10 +100,10 @@
                                 "semanticName": "SV_POSITION"
                             },
                             {
-                                "name": "color",
+                                "name": "uv",
                                 "type": {
                                     "kind": "vector",
-                                    "elementCount": 4,
+                                    "elementCount": 2,
                                     "elementType": {
                                         "kind": "scalar",
                                         "scalarType": "float32"
@@ -92,7 +111,7 @@
                                 },
                                 "stage": "fragment",
                                 "binding": {"kind": "varyingInput", "index": 0},
-                                "semanticName": "COLOR"
+                                "semanticName": "TEXCOORD"
                             }
                         ]
                     }
@@ -112,9 +131,12 @@
                 }
             },
             "bindings": [
-
+                {
+                    "name": "g_texture",
+                    "binding": {"kind": "descriptorTableSlot", "index": 0}
+                }
             ]
         }
     ],
-    "bindlessSpaceIndex": 0
+    "bindlessSpaceIndex": 1
 }

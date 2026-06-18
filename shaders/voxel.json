@@ -2,7 +2,7 @@
     "parameters": [
         {
             "name": "g_camera",
-            "binding": {"kind": "uniform", "offset": 0, "size": 80, "elementStride": 0},
+            "binding": {"kind": "uniform", "offset": 0, "size": 144, "elementStride": 0},
             "type": {
                 "kind": "struct",
                 "name": "CameraUniforms",
@@ -21,6 +21,19 @@
                         "binding": {"kind": "uniform", "offset": 0, "size": 64, "elementStride": 0}
                     },
                     {
+                        "name": "invViewProj",
+                        "type": {
+                            "kind": "matrix",
+                            "rowCount": 4,
+                            "columnCount": 4,
+                            "elementType": {
+                                "kind": "scalar",
+                                "scalarType": "float32"
+                            }
+                        },
+                        "binding": {"kind": "uniform", "offset": 64, "size": 64, "elementStride": 0}
+                    },
+                    {
                         "name": "position",
                         "type": {
                             "kind": "vector",
@@ -30,7 +43,7 @@
                                 "scalarType": "float32"
                             }
                         },
-                        "binding": {"kind": "uniform", "offset": 64, "size": 12, "elementStride": 4}
+                        "binding": {"kind": "uniform", "offset": 128, "size": 12, "elementStride": 4}
                     }
                 ]
             }
@@ -39,7 +52,7 @@
             "name": "g_volume",
             "bindings": [
                 {"kind": "descriptorTableSlot", "index": 1},
-                {"kind": "uniform", "offset": 80, "size": 16, "elementStride": 0}
+                {"kind": "uniform", "offset": 144, "size": 16, "elementStride": 0}
             ],
             "type": {
                 "kind": "struct",
@@ -81,11 +94,28 @@
                     }
                 ]
             }
+        },
+        {
+            "name": "g_outputFramebuffer",
+            "binding": {"kind": "descriptorTableSlot", "index": 2},
+            "type": {
+                "kind": "resource",
+                "baseShape": "texture2D",
+                "access": "readWrite",
+                "resultType": {
+                    "kind": "vector",
+                    "elementCount": 4,
+                    "elementType": {
+                        "kind": "scalar",
+                        "scalarType": "float32"
+                    }
+                }
+            }
         }
     ],
     "entryPoints": [
         {
-            "name": "cs_main",
+            "name": "main",
             "stage": "compute",
             "parameters": [
                 {
@@ -105,14 +135,18 @@
             "bindings": [
                 {
                     "name": "g_camera",
-                    "binding": {"kind": "uniform", "offset": 0, "size": 80, "elementStride": 0}
+                    "binding": {"kind": "uniform", "offset": 0, "size": 144, "elementStride": 0}
                 },
                 {
                     "name": "g_volume",
                     "bindings": [
                         {"kind": "descriptorTableSlot", "index": 1},
-                        {"kind": "uniform", "offset": 80, "size": 16, "elementStride": 0}
+                        {"kind": "uniform", "offset": 144, "size": 16, "elementStride": 0}
                     ]
+                },
+                {
+                    "name": "g_outputFramebuffer",
+                    "binding": {"kind": "descriptorTableSlot", "index": 2}
                 }
             ]
         }

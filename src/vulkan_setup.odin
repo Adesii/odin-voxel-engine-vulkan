@@ -30,6 +30,12 @@ vulkan_init :: proc() {
 	vulkan_init_ui(r)
 	vulkan_create_swapchain_objects(r)
 	rebuild_shaders()
+	//Test voxel entry point
+
+	state.grid_size = {64, 64, 64}
+	vulkan_init_voxel_buffers(r, &state.voxel_ctx, state.grid_size)
+	vulkan_upload_test_voxels(r, &state.voxel_ctx, state.grid_size)
+	vulkan_create_compute_pipeline_for_voxels(r, &state.voxel_ctx)
 }
 
 vulkan_initialize_vma :: proc(r: ^vulkan_renderer) {
@@ -250,12 +256,14 @@ vulkan_query_swapchain_support :: proc(
 }
 
 vulkan_create_descriptor_pool :: proc(r: ^vulkan_renderer) {
-	pool_sizes := [2]vk.DescriptorPoolSize {
+	pool_sizes := [4]vk.DescriptorPoolSize {
 		{
 			type            = .UNIFORM_BUFFER,
 			descriptorCount = 100, // Arbitrary large number for simplicity
 		},
 		{type = .STORAGE_BUFFER, descriptorCount = 100},
+		{type = .STORAGE_IMAGE, descriptorCount = 100},
+		{type = .COMBINED_IMAGE_SAMPLER, descriptorCount = 100},
 	}
 	create_info := vk.DescriptorPoolCreateInfo {
 		sType         = .DESCRIPTOR_POOL_CREATE_INFO,
@@ -294,13 +302,20 @@ vulkan_create_device :: proc(r: ^vulkan_renderer) {
 	features: vk.PhysicalDeviceFeatures
 	when ODIN_DEBUG {
 		features = vk.PhysicalDeviceFeatures {
-			vertexPipelineStoresAndAtomics = true,
-			fragmentStoresAndAtomics       = true,
-			shaderInt16                    = true,
-			shaderInt64                    = true,
+			vertexPipelineStoresAndAtomics       = true,
+			fragmentStoresAndAtomics             = true,
+			shaderInt16                          = true,
+			shaderInt64                          = true,
+			// needed for compute raymarching output
+			shaderStorageImageReadWithoutFormat  = true,
+			shaderStorageImageWriteWithoutFormat = true,
 		}
 	}
-	name := cstring(vk.KHR_SWAPCHAIN_EXTENSION_NAME)
+	extensionArray := [2]cstring {
+		cstring(vk.KHR_SWAPCHAIN_EXTENSION_NAME),
+		cstring(vk.KHR_SHARED_PRESENTABLE_IMAGE_EXTENSION_NAME),
+	}
+
 	// when ODIN_DEBUG {
 	// 	append(&device_extensions, cstring(vk.EXT_DEBUG_MARKER_EXTENSION_NAME))
 	// }
@@ -310,8 +325,8 @@ vulkan_create_device :: proc(r: ^vulkan_renderer) {
 		pNext                   = &vulkan11_features,
 		queueCreateInfoCount    = u32(queue_info_count),
 		pQueueCreateInfos       = &queue_infos[0],
-		enabledExtensionCount   = u32(1),
-		ppEnabledExtensionNames = &name,
+		enabledExtensionCount   = u32(len(extensionArray)),
+		ppEnabledExtensionNames = raw_data(&extensionArray),
 		pEnabledFeatures        = &features,
 	}
 	VK_CHECK(vk.CreateDevice(r.physical_device, &create_info, nil, &r.device), "vkCreateDevice")

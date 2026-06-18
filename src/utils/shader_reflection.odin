@@ -38,7 +38,7 @@ get_odin_type :: proc(type_obj: json.Object) -> string {
 		elem := type_obj["elementType"].(json.Object)
 		elem_str := get_odin_type(elem)
 		// Slang uses row-major layouts matching HLSL matrix representations
-		return fmt.tprintf("[%d][%d]%s", rows, cols, elem_str)
+		return fmt.tprintf("matrix[%d,%d]%s", rows, cols, elem_str)
 	}
 	return "rawptr"
 }
@@ -99,6 +99,13 @@ generate_shader_bindings :: proc(json_path: string, output_name: string, package
 					if offset + size > uniform_buffer_size {
 						uniform_buffer_size = offset + size
 					}
+				}
+				if b["kind"].(json.String) == "descriptorTableSlot" {
+					slot := int(b["index"].(json.Float))
+					append(&descriptor_slots, struct {
+						name: string,
+						slot: int,
+					}{param_name, slot})
 				}
 			}
 			if bindings_val, bs_exists := p["bindings"]; bs_exists {
@@ -218,6 +225,7 @@ generate_shader_bindings :: proc(json_path: string, output_name: string, package
 	}
 
 	for slot in descriptor_slots {
+		fmt.printfln("Adding descriptor slot for %s: %d", slot.name, slot.slot)
 		fmt.sbprintf(&sb, "%s_BINDING_%s :: %d\n", prefix, strings.to_upper(slot.name), slot.slot)
 	}
 	output_directory := fmt.tprintf("src/shaders/%s", package_name)

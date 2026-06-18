@@ -4,3 +4,6 @@ package ui_shader_shader
 // --- UI_SHADER Pipeline Constants ---
 UI_SHADER_VS_MAIN_ENTRY_POINT :: "vs_main"
 UI_SHADER_FS_MAIN_ENTRY_POINT :: "fs_main"
+UI_SHADER_BINDING_GLOBALS :: 2
+UI_SHADER_BINDING_SAMP :: 0
+UI_SHADER_BINDING_TEXT :: 1

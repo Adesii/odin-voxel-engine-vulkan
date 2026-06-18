@@ -67,7 +67,7 @@ vulkan_create_swapchain_objects :: proc(r: ^vulkan_renderer) {
 		imageColorSpace  = r.surface_format.colorSpace,
 		imageExtent      = r.extent,
 		imageArrayLayers = 1,
-		imageUsage       = {.COLOR_ATTACHMENT},
+		imageUsage       = {.COLOR_ATTACHMENT, .TRANSFER_DST},
 		preTransform     = support.capabilities.currentTransform,
 		compositeAlpha   = {.OPAQUE},
 		presentMode      = r.present_mode,
@@ -180,7 +180,7 @@ vulkan_create_render_pass :: proc(r: ^vulkan_renderer) {
 		pDependencies   = &dependency,
 	}
 	VK_CHECK(
-		vk.CreateRenderPass(r.device, &create_info, nil, &r.render_pass),
+		vk.CreateRenderPass(r.device, &create_info, nil, &r.fullscreen.render_pass),
 		"vkCreateRenderPass",
 	)
 }
@@ -191,7 +191,7 @@ vulkan_create_framebuffers :: proc(r: ^vulkan_renderer) {
 		attachments := [1]vk.ImageView{view}
 		create_info := vk.FramebufferCreateInfo {
 			sType           = .FRAMEBUFFER_CREATE_INFO,
-			renderPass      = r.render_pass,
+			renderPass      = r.fullscreen.render_pass,
 			attachmentCount = 1,
 			pAttachments    = &attachments[0],
 			width           = r.extent.width,
@@ -215,17 +215,17 @@ vulkan_destroy_swapchain_objects :: proc(r: ^vulkan_renderer) {
 	r.framebuffers = nil
 	vulkan_destroy_ui_swapchain_objects(r)
 
-	if r.pipeline != {} {
-		vk.DestroyPipeline(r.device, r.pipeline, nil)
-		r.pipeline = {}
+	if r.fullscreen.pipeline != {} {
+		vk.DestroyPipeline(r.device, r.fullscreen.pipeline, nil)
+		r.fullscreen.pipeline = {}
 	}
-	if r.pipeline_layout != {} {
-		vk.DestroyPipelineLayout(r.device, r.pipeline_layout, nil)
-		r.pipeline_layout = {}
+	if r.fullscreen.pipeline_layout != {} {
+		vk.DestroyPipelineLayout(r.device, r.fullscreen.pipeline_layout, nil)
+		r.fullscreen.pipeline_layout = {}
 	}
-	if r.render_pass != {} {
-		vk.DestroyRenderPass(r.device, r.render_pass, nil)
-		r.render_pass = {}
+	if r.fullscreen.render_pass != {} {
+		vk.DestroyRenderPass(r.device, r.fullscreen.render_pass, nil)
+		r.fullscreen.render_pass = {}
 	}
 	for view in r.swapchain_views {
 		if view != {} {

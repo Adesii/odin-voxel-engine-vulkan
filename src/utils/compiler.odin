@@ -114,7 +114,7 @@ load_shader_bytes :: proc(shader_name: string) -> []byte {
 	fmt.printfln("Loading shader: %s", path)
 	code, err := os.read_entire_file(path, context.allocator)
 	if err != nil {
-		fmt.panicf("Failed to read shader file: %s\n", err)
+		fmt.panicf("Failed to read shader file: %s, at path: %s", err, path)
 	}
 	return code
 }
@@ -124,12 +124,13 @@ get_shader_path :: proc(shader_name: string) -> string {
 	if strings.ends_with(shader_name, ".slang") {
 		return strings.join({"shader_src/", shader_name}, "")
 	}
-	type := "wgsl"
+	type := "spirv"
 	shader_name := shader_name
-	if strings.ends_with(shader_name, ".spirv") {
-		type = "spirv"
-		shader_name = strings.trim_suffix(shader_name, ".spirv")
+	if strings.ends_with(shader_name, ".wgsl") {
+		type = "wgsl"
 	}
+	shader_name = strings.trim_suffix(shader_name, type)
+	shader_name = strings.trim_suffix(shader_name, ".")
 	comp := strings.join({"shaders/", shader_name, ".", type}, "")
 	return comp
 }

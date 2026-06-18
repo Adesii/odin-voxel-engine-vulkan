@@ -5,6 +5,7 @@ import intrinsics "base:intrinsics"
 import "base:runtime"
 import "core:fmt"
 import "core:strings"
+import "utils"
 import sdl "vendor:sdl3"
 import vk "vendor:vulkan"
 
@@ -16,6 +17,12 @@ vulkan_buffer :: struct {
 	buffer:     vk.Buffer,
 	allocation: vma.Allocation,
 }
+vulkan_image :: struct {
+	image:      vk.Image,
+	view:       vk.ImageView,
+	sampler:    vk.Sampler,
+	allocation: vma.Allocation,
+}
 
 swapchain_support :: struct {
 	capabilities:  vk.SurfaceCapabilitiesKHR,
@@ -23,6 +30,15 @@ swapchain_support :: struct {
 	present_modes: []vk.PresentModeKHR,
 }
 
+fullscreen_object :: struct {
+	pipeline_layout:   vk.PipelineLayout,
+	pipeline:          vk.Pipeline,
+	vert_module:       vk.ShaderModule,
+	frag_module:       vk.ShaderModule,
+	render_pass:       vk.RenderPass,
+	descriptor_set:    vk.DescriptorSet,
+	descriptor_layout: vk.DescriptorSetLayout,
+}
 vulkan_renderer :: struct {
 	instance:             vk.Instance,
 	debug_messenger:      vk.DebugUtilsMessengerEXT,
@@ -43,11 +59,7 @@ vulkan_renderer :: struct {
 	swapchain_images:     []vk.Image,
 	swapchain_views:      []vk.ImageView,
 	images_in_flight:     []vk.Fence,
-	render_pass:          vk.RenderPass,
-	pipeline_layout:      vk.PipelineLayout,
-	pipeline:             vk.Pipeline,
-	vert_module:          vk.ShaderModule,
-	frag_module:          vk.ShaderModule,
+	fullscreen:           fullscreen_object,
 	framebuffers:         []vk.Framebuffer,
 	ui:                   microui_ctx,
 	command_pool:         vk.CommandPool,
@@ -222,6 +234,105 @@ vulkan_create_buffer :: proc(
 	)
 	return b
 }
+vulkan_create_sampler :: proc(
+	r: ^vulkan_renderer,
+	filter: vk.Filter,
+	address_mode: vk.SamplerAddressMode,
+) -> vk.Sampler {
+	sampler_info := vk.SamplerCreateInfo {
+		sType                   = .SAMPLER_CREATE_INFO,
+		magFilter               = filter,
+		minFilter               = filter,
+		addressModeU            = address_mode,
+		addressModeV            = address_mode,
+		addressModeW            = address_mode,
+		maxAnisotropy           = 1.0,
+		borderColor             = .INT_OPAQUE_BLACK,
+		unnormalizedCoordinates = false,
+		compareEnable           = false,
+		compareOp               = .ALWAYS,
+		mipmapMode              = .LINEAR,
+		mipLodBias              = 0.0,
+		minLod                  = 0.0,
+		maxLod                  = 0.0,
+	}
+	sampler: vk.Sampler
+	VK_CHECK(
+		vk.CreateSampler(r.device, &sampler_info, nil, &sampler),
+		fmt.tprintf("vkCreateSampler(%v)", filter),
+	)
+	return sampler
+}
+
+vulkan_create_pipeline_layout :: proc(
+	r: ^vulkan_renderer,
+	shader_name: string,
+	stage_flags: vk.ShaderStageFlags,
+	bindings: []struct {
+		binding: u32,
+		type:    vk.DescriptorType,
+	},
+) -> vk.PipelineLayout {
+	layout_bindings := make([]vk.DescriptorSetLayoutBinding, len(bindings), context.allocator)
+	defer delete(layout_bindings)
+	for i, b in bindings {
+		fmt.printfln("Creating pipeline layout binding: %v, type: %v", i.binding, i.type)
+		layout_bindings[b] = vk.DescriptorSetLayoutBinding {
+			binding         = i.binding,
+			descriptorType  = i.type,
+			descriptorCount = 1,
+			stageFlags      = stage_flags,
+		}
+	}
+	layout_info := vk.DescriptorSetLayoutCreateInfo {
+		sType        = .DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+		bindingCount = u32(len(layout_bindings)),
+		pBindings    = raw_data(layout_bindings),
+	}
+	layout: vk.DescriptorSetLayout
+	VK_CHECK(
+		vk.CreateDescriptorSetLayout(r.device, &layout_info, nil, &layout),
+		fmt.tprintf("vkCreateDescriptorSetLayout(%s)", shader_name),
+	)
+
+	pipeline_layout_info := vk.PipelineLayoutCreateInfo {
+		sType          = .PIPELINE_LAYOUT_CREATE_INFO,
+		setLayoutCount = 1,
+		pSetLayouts    = &layout,
+	}
+	pipeline_layout: vk.PipelineLayout
+	VK_CHECK(
+		vk.CreatePipelineLayout(r.device, &pipeline_layout_info, nil, &pipeline_layout),
+		fmt.tprintf("vkCreatePipelineLayout(%s)", shader_name),
+	)
+	return pipeline_layout
+}
+
+vulkan_create_compute_pipeline :: proc(
+	r: ^vulkan_renderer,
+	entry_point: string,
+	shader_name: string,
+	pipeline_layout: vk.PipelineLayout,
+) -> vk.Pipeline {
+	module := utils.load_shader_bytes(shader_name)
+	stage := vk.PipelineShaderStageCreateInfo {
+		sType  = .PIPELINE_SHADER_STAGE_CREATE_INFO,
+		stage  = {.COMPUTE},
+		module = vulkan_create_shader_module(module), //TODO: Cache them and destroy too
+		pName  = strings.clone_to_cstring(entry_point),
+	}
+	pipeline_info := vk.ComputePipelineCreateInfo {
+		sType  = .COMPUTE_PIPELINE_CREATE_INFO,
+		stage  = stage,
+		layout = pipeline_layout,
+	}
+	pipeline: vk.Pipeline
+	VK_CHECK(
+		vk.CreateComputePipelines(r.device, {}, 1, &pipeline_info, nil, &pipeline),
+		fmt.tprintf("vkCreateComputePipelines(%s)", shader_name),
+	)
+	return pipeline
+}
 
 vulkan_destroy_buffer :: proc(r: ^vulkan_renderer, buffer: ^vulkan_buffer) {
 	if buffer.buffer != {} {
@@ -250,6 +361,7 @@ vulkan_write_buffer :: proc(
 vulkan_allocate_descriptor_set :: proc(
 	r: ^vulkan_renderer,
 	shader_name: string,
+	stage_flags: vk.ShaderStageFlags,
 	bindings: []struct {
 		binding: u32,
 		type:    vk.DescriptorType,
@@ -262,7 +374,7 @@ vulkan_allocate_descriptor_set :: proc(
 			binding         = i.binding,
 			descriptorType  = i.type,
 			descriptorCount = 1,
-			stageFlags      = {.VERTEX, .FRAGMENT},
+			stageFlags      = stage_flags,
 		}
 	}
 	layout_info := vk.DescriptorSetLayoutCreateInfo {
