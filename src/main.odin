@@ -112,6 +112,7 @@ run_game :: proc() {
 	state.camera.position = {32, 32, 50}
 
 	held_keys_map = make(map[sdl.Keycode]bool)
+	rotate_camera(0, 0) // Initialize camera rotation matrices
 
 	main_loop: for {
 		last = now

@@ -6,7 +6,11 @@ struct Voxel {
 
 // This represents your dense, flat array
 struct VoxelVolume {
-  uint3 origin;
-  uint3 size;  // Grid dimensions (e.g., 64, 64, 64)
+  uint origin_x;
+  uint origin_y;
+  uint origin_z;
+  uint size_x;
+  uint size_y;
+  uint size_z;
   Voxel *data; // Flat 1D array inside the struct!
 };

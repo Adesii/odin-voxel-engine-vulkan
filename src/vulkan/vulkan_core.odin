@@ -238,9 +238,9 @@ create_buffer :: proc(
 	b: vulkan_buffer
 	b.allocation = vma.Allocation{}
 	b.buffer = vk.Buffer{}
-	// fmt.println("Creating buffer of size %d", size)
-	// fmt.println("Buffer usage: %v", usage)
-	// fmt.println("Memory properties: %v", properties)
+	fmt.println("Creating buffer of size %d", size)
+	fmt.println("Buffer usage: %v", usage)
+	fmt.println("Memory properties: %v", properties)
 	fmt.printfln("vma allocator: %p", r.allocator_vma)
 	VK_CHECK(
 		vma.CreateBuffer(
@@ -371,6 +371,15 @@ write_buffer :: proc(r: ^vulkan_renderer, buffer: ^vulkan_buffer, data: rawptr, 
 	VK_CHECK(vma.MapMemory(r.allocator_vma, buffer.allocation, &mapped), "vkMapMemory")
 	intrinsics.mem_copy_non_overlapping(mapped, data, size)
 	vma.UnmapMemory(r.allocator_vma, buffer.allocation)
+}
+
+get_gpu_address :: proc(device: vk.Device, buffer: vk.Buffer) -> vk.DeviceAddress {
+	assert(buffer != 0, "Vulkan buffer handle is null!")
+	address_info := vk.BufferDeviceAddressInfo {
+		sType  = .BUFFER_DEVICE_ADDRESS_INFO,
+		buffer = buffer,
+	}
+	return vk.GetBufferDeviceAddress(device, &address_info)
 }
 
 

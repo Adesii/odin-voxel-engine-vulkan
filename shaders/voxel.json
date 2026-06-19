@@ -59,28 +59,52 @@
                     "name": "VoxelVolume",
                     "fields": [
                         {
-                            "name": "origin",
+                            "name": "origin_x",
                             "type": {
-                                "kind": "vector",
-                                "elementCount": 3,
-                                "elementType": {
-                                    "kind": "scalar",
-                                    "scalarType": "uint32"
-                                }
+                                "kind": "scalar",
+                                "scalarType": "uint32"
                             },
-                            "binding": {"kind": "uniform", "offset": 0, "size": 12, "elementStride": 4}
+                            "binding": {"kind": "uniform", "offset": 0, "size": 4, "elementStride": 0}
                         },
                         {
-                            "name": "size",
+                            "name": "origin_y",
                             "type": {
-                                "kind": "vector",
-                                "elementCount": 3,
-                                "elementType": {
-                                    "kind": "scalar",
-                                    "scalarType": "uint32"
-                                }
+                                "kind": "scalar",
+                                "scalarType": "uint32"
                             },
-                            "binding": {"kind": "uniform", "offset": 16, "size": 12, "elementStride": 4}
+                            "binding": {"kind": "uniform", "offset": 4, "size": 4, "elementStride": 0}
+                        },
+                        {
+                            "name": "origin_z",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "uint32"
+                            },
+                            "binding": {"kind": "uniform", "offset": 8, "size": 4, "elementStride": 0}
+                        },
+                        {
+                            "name": "size_x",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "uint32"
+                            },
+                            "binding": {"kind": "uniform", "offset": 12, "size": 4, "elementStride": 0}
+                        },
+                        {
+                            "name": "size_y",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "uint32"
+                            },
+                            "binding": {"kind": "uniform", "offset": 16, "size": 4, "elementStride": 0}
+                        },
+                        {
+                            "name": "size_z",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "uint32"
+                            },
+                            "binding": {"kind": "uniform", "offset": 20, "size": 4, "elementStride": 0}
                         },
                         {
                             "name": "data",
@@ -88,7 +112,7 @@
                                 "kind": "pointer",
                                 "valueType": "Voxel"
                             },
-                            "binding": {"kind": "uniform", "offset": 32, "size": 8, "elementStride": 0}
+                            "binding": {"kind": "uniform", "offset": 24, "size": 8, "elementStride": 0}
                         }
                     ]
                 }

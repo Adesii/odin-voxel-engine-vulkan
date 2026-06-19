@@ -57,46 +57,97 @@ void main(uint3 dispatchThreadID: SV_DispatchThreadID) {
   // g_outputFramebuffer[pixelCoord] = float4(abs(ray.direction), 1.0);
   // return; // Short-circuit the rest of the raymarcher loop
   // 2. Raymarching parameters
-  VoxelVolume volume = get_volume();
-  float3 size = float3(volume.size);
-  float t = 0.0;
-  float max_dist = 200.0; // How far the camera can see
-  float step_size =
-      0.05; // Smaller = sharper voxels, larger = faster performance
-
+  // VoxelVolume volume = get_volume();
+  // if (dispatchThreadID.x == 0 &&
+  //     dispatchThreadID.y == 0) // Print volume info for the first thread only
+  // printf("Volume info: origin=(%u, %u, %u), size=(%u, %u, %u)\n",
+  //        volume.origin_x, volume.origin_y, volume.origin_z, volume.size_x,
+  //        volume.size_y, volume.size_z);
+  // printf("camera info: position=(%f, %f, %f), matrix=(%f, %f, %f, %f)\n",
+  //        g_camera.position.x, g_camera.position.y, g_camera.position.z,
+  //        g_camera.invViewProj._11, g_camera.invViewProj._12,
+  //        g_camera.invViewProj._13, g_camera.invViewProj._14);
+  // return;
   float4 finalColor = float4(0.2, 0.4, 0.6, 1.0); // Default sky bluebackground
+  float depth = 1e9; // Start with a very large depth value
+  for (int i = 0; i < g_volume.getCount(); i++) {
+    VoxelVolume volume = g_volume[i];
 
-  while (t < max_dist) {
-    float3 position = ray.origin + ray.direction * t;
+    float3 size = float3(volume.size_x, volume.size_y, volume.size_z);
+    float3 origin = float3(volume.origin_x, volume.origin_y, volume.origin_z);
+    float t = 0.0;
+    float max_dist = 500.0; // How far the camera can see
+    float step_size =
+        0.1; // Smaller = sharper voxels, larger = faster performance
 
-    // Check if the ray position has entered our 3D grid boundary
-    if (position.x >= 0 && position.x < size.x && position.y >= 0 &&
-        position.y < size.y && position.z >= 0 && position.z < size.z) {
+    // if (dispatchThreadID.x == 0 &&
+    //     dispatchThreadID.y == 0) // Print volume info for the first thread
+    //     only
+    // printf("voxel array pointer: 0x%p\n", volume.data);
+    // printf("first color: %u\n", volume.data[0].color);
+    // return;
+    int max_steps = 1000;
+    for (int i = 0; i < max_steps && t < max_dist; i++) {
+      float3 position = ray.origin + ray.direction * t;
 
-      // Convert float 3D coordinate to exact integer voxel coordinate
-      uint3 voxelCoord = uint3(position);
+      float3 localPos = position - origin;
 
-      // Translate 3D coordinates to your flat dense 1D array index!
-      uint flatIndex = voxelCoord.x + (voxelCoord.y * (uint)size.x) +
-                       (voxelCoord.z * (uint)size.x * (uint)size.y);
+      // Check if the ray position has entered our 3D grid boundary
+      if (localPos.x >= 0 && localPos.x < size.x && localPos.y >= 0 &&
+          localPos.y < size.y && localPos.z >= 0 && localPos.z < size.z) {
 
-      uint packed_color = volume.data[flatIndex].color;
+        // Convert float 3D coordinate to exact integer voxel coordinate
+        uint3 voxelCoord = uint3(localPos);
 
-      // If the voxel color is not transparent, we hit a voxel!
-      if (packed_color != 0) {
-        // Unpack RGBA8 color from the u32
-        float r = (float)((packed_color >> 24) & 0xFF) / 255.0;
-        float g = (float)((packed_color >> 16) & 0xFF) / 255.0;
-        float b = (float)((packed_color >> 8) & 0xFF) / 255.0;
+        // Translate 3D coordinates to your flat dense 1D array index!
+        uint flatIndex = voxelCoord.x + (voxelCoord.y * volume.size_x) +
+                         (voxelCoord.z * volume.size_x * volume.size_y);
+        // Calculate the absolute upper limit of your allocated buffer
+        uint maxVoxels = volume.size_x * volume.size_y * volume.size_z;
+        if (flatIndex >= maxVoxels) {
+          // Out of bounds, skip this voxel
+          finalColor = float4(1.0, 0.0, 1.0, 1.0); // Magenta error color
+          break;
+        }
+        // uint64_t raw_address = ((uint64_t)volume.data.y << 32) |
+        // volume.data.x; if (dispatchThreadID.x == 0 &&
+        //     dispatchThreadID.y ==
+        //         0) // Print volume info for the first thread only
+        //   printf("voxel array pointer: 0x%016llX\n", volume.data);
+        // return;
+        uint packed_color = volume.data[flatIndex].color;
+        // if (dispatchThreadID.x == 0 &&
+        //     dispatchThreadID.y ==
+        //         0) // Print volume info for the first thread only
+        //   printf(
+        //       "Ray position: (%f, %f, %f), Voxel coord: (%u, %u, %u), Flat "
+        //       "index: %u, Packed color: 0x%08X\n", position.x, position.y,
+        //       position.z, voxelCoord.x, voxelCoord.y, voxelCoord.z,
+        //       flatIndex, packed_color);
 
-        // Add a tiny bit of distance shading so it looks beautifully 3D
-        float depth_shadow = 1.0 / (1.0 + (t * t * 0.005));
-        finalColor = float4(float3(r, g, b) * depth_shadow, 1.0);
-        break;
+        // If the voxel color is not transparent, we hit a voxel!
+        if (packed_color != 0) {
+          // Unpack RGBA8 color from the u32
+          float r = (float)((packed_color >> 24) & 0xFF) / 255.0;
+          float g = (float)((packed_color >> 16) & 0xFF) / 255.0;
+          float b = (float)((packed_color >> 8) & 0xFF) / 255.0;
+
+          // Add a tiny bit of distance shading so it looks beautifully 3D
+          float depth_shadow = 1.0 / (1.0 + (t * t * 0.0005));
+          if (depth > t) {
+            depth = t;
+            finalColor = float4(float3(r, g, b) * depth_shadow, 1.0);
+          }
+          break;
+        }
       }
+      t += step_size;
     }
-    t += step_size;
   }
+  // if (dispatchThreadID.x == 0 &&
+  //     dispatchThreadID.y == 0) // Print volume info for the first thread only
+  //   printf("Final color: (%f, %f, %f)\n", finalColor.r, finalColor.g,
+  //          finalColor.b);
 
   // 3. Output the pixel straight to the screen image container
   g_outputFramebuffer[pixelCoord] = finalColor;

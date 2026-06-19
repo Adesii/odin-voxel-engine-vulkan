@@ -19,13 +19,11 @@ init :: proc(window: ^sdl.Window) {
 	vk.load_proc_addresses_global(cast(rawptr)vk_proc)
 	r := &renderer
 	create_instance(r)
-	vk.load_proc_addresses_instance(r.instance)
 	create_debug_messenger(r)
 	create_surface(r, window)
 	pick_physical_device(r)
 	create_device(r)
 	create_descriptor_pool(r)
-	vk.load_proc_addresses_device(r.device)
 	create_command_pool(r)
 	create_sync_objects(r)
 	initialize_vma(r)
@@ -51,6 +49,7 @@ initialize_vma :: proc(r: ^vulkan_renderer) {
 			.KHR_DEDICATED_ALLOCATION,
 			.KHR_BIND_MEMORY2,
 			.EXT_MEMORY_BUDGET,
+			.BUFFER_DEVICE_ADDRESS,
 		},
 	}
 	VK_CHECK(vma.CreateAllocator(&create_info_vma, &r.allocator_vma), "vmaCreateAllocator")
@@ -88,7 +87,7 @@ create_instance :: proc(r: ^vulkan_renderer) {
 		applicationVersion = vk.MAKE_API_VERSION(0, 0, 1, 0),
 		pEngineName        = cstring("none"),
 		engineVersion      = vk.MAKE_API_VERSION(0, 0, 1, 0),
-		apiVersion         = vk.API_VERSION_1_1,
+		apiVersion         = vk.API_VERSION_1_4,
 	}
 	create_info := vk.InstanceCreateInfo {
 		sType                   = .INSTANCE_CREATE_INFO,
@@ -109,7 +108,7 @@ create_instance :: proc(r: ^vulkan_renderer) {
 
 	}
 	VK_CHECK(vk.CreateInstance(&create_info, nil, &r.instance), "vkCreateInstance")
-
+	vk.load_proc_addresses_instance(r.instance)
 }
 
 create_surface :: proc(r: ^vulkan_renderer, window: ^sdl.Window) {
@@ -287,25 +286,39 @@ create_device :: proc(r: ^vulkan_renderer) {
 		}
 		queue_info_count = 2
 	}
+	// 1. Core 1.2 Features Setup
+	vulkan12_features := vk.PhysicalDeviceVulkan12Features {
+		sType               = .PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
+		bufferDeviceAddress = true,
+		pNext               = nil, // This terminates the chain
+	}
+
+	// 2. Core 1.1 Features Setup
 	vulkan11_features := vk.PhysicalDeviceVulkan11Features {
 		sType                = .PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
 		shaderDrawParameters = true,
+		pNext                = &vulkan12_features, // Points forward to 1.2 features
 	}
-	features: vk.PhysicalDeviceFeatures
+
+	// 3. Core 1.0 Features Container (Replaces old pEnabledFeatures pointer)
+	features2 := vk.PhysicalDeviceFeatures2 {
+		sType = .PHYSICAL_DEVICE_FEATURES_2,
+		features = {shaderInt64 = true},
+		pNext = &vulkan11_features, // Points forward to 1.1 features
+	}
 	when ODIN_DEBUG {
-		features = vk.PhysicalDeviceFeatures {
-			vertexPipelineStoresAndAtomics       = true,
-			fragmentStoresAndAtomics             = true,
-			shaderInt16                          = true,
-			shaderInt64                          = true,
-			// needed for compute raymarching output
-			shaderStorageImageReadWithoutFormat  = true,
-			shaderStorageImageWriteWithoutFormat = true,
-		}
+		features2.features.vertexPipelineStoresAndAtomics = true
+		features2.features.fragmentStoresAndAtomics = true
+		features2.features.shaderInt16 = true
+		features2.features.shaderInt64 = true
+		// needed for compute raymarching output
+		features2.features.shaderStorageImageReadWithoutFormat = true
+		features2.features.shaderStorageImageWriteWithoutFormat = true
 	}
-	extensionArray := [2]cstring {
+	extensionArray := [3]cstring {
 		cstring(vk.KHR_SWAPCHAIN_EXTENSION_NAME),
 		cstring(vk.KHR_SHARED_PRESENTABLE_IMAGE_EXTENSION_NAME),
+		cstring(vk.KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME),
 	}
 
 	// when ODIN_DEBUG {
@@ -314,14 +327,16 @@ create_device :: proc(r: ^vulkan_renderer) {
 
 	create_info := vk.DeviceCreateInfo {
 		sType                   = .DEVICE_CREATE_INFO,
-		pNext                   = &vulkan11_features,
+		pNext                   = &features2,
 		queueCreateInfoCount    = u32(queue_info_count),
-		pQueueCreateInfos       = &queue_infos[0],
+		pQueueCreateInfos       = raw_data(&queue_infos),
 		enabledExtensionCount   = u32(len(extensionArray)),
 		ppEnabledExtensionNames = raw_data(&extensionArray),
-		pEnabledFeatures        = &features,
+		pEnabledFeatures        = nil,
 	}
 	VK_CHECK(vk.CreateDevice(r.physical_device, &create_info, nil, &r.device), "vkCreateDevice")
+	vk.load_proc_addresses_device(r.device)
+
 	vk.GetDeviceQueue(r.device, r.graphics_queue_index, 0, &r.graphics_queue)
 	vk.GetDeviceQueue(r.device, r.present_queue_index, 0, &r.present_queue)
 }

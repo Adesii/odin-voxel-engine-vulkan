@@ -55,7 +55,7 @@ json_get_int :: proc(obj: json.Object, key: string) -> int {
 json_get_object :: proc(obj: json.Object, key: string) -> (json.Object, bool) {
 	value, exists := obj[key]
 	if !exists {
-		return json.Object {}, false
+		return json.Object{}, false
 	}
 
 	#partial switch v in value {
@@ -63,7 +63,7 @@ json_get_object :: proc(obj: json.Object, key: string) -> (json.Object, bool) {
 		return v, true
 	}
 
-	return json.Object {}, false
+	return json.Object{}, false
 }
 
 json_get_array :: proc(obj: json.Object, key: string) -> (json.Array, bool) {
@@ -87,10 +87,7 @@ append_unique_descriptor_slot :: proc(slots: ^[dynamic]descriptor_slot, name: st
 		}
 	}
 
-	append(slots, descriptor_slot {
-		name = name,
-		slot = slot,
-	})
+	append(slots, descriptor_slot{name = name, slot = slot})
 }
 
 append_unique_struct_definition :: proc(
@@ -108,10 +105,7 @@ append_unique_struct_definition :: proc(
 		}
 	}
 
-	append(struct_defs, struct_definition {
-		name     = name,
-		type_obj = type_obj,
-	})
+	append(struct_defs, struct_definition{name = name, type_obj = type_obj})
 }
 
 find_struct_definition :: proc(struct_defs: []struct_definition, name: string) -> (int, bool) {
@@ -172,8 +166,9 @@ collect_type_definitions :: proc(type_obj: json.Object, struct_defs: ^[dynamic]s
 		case json.Object:
 			collect_type_definitions(v, struct_defs)
 		}
-	default:
-		if elem, exists := json_get_object(type_obj, "elementType"); exists {
+
+		default: if
+		elem, exists := json_get_object(type_obj, "elementType"); exists {
 			collect_type_definitions(elem, struct_defs)
 		}
 		if result_type, exists := json_get_object(type_obj, "resultType"); exists {
@@ -280,7 +275,7 @@ get_odin_type :: proc(type_obj: json.Object, known_structs: []struct_definition)
 			if _, ok := find_struct_definition(known_structs, value_name); ok {
 				return fmt.tprintf("^%s", value_name)
 			}
-			return "rawptr"
+			return "u64"
 		}
 	case "resource":
 		if result_type, exists := json_get_object(type_obj, "resultType"); exists {
@@ -292,7 +287,7 @@ get_odin_type :: proc(type_obj: json.Object, known_structs: []struct_definition)
 		}
 	}
 
-	return "rawptr"
+	return "u64"
 }
 
 record_binding :: proc(
@@ -371,7 +366,8 @@ emit_struct_definition :: proc(
 				continue
 			}
 
-			if binding, binding_ok := json_get_object(field, "binding"); binding_ok && json_get_string(binding, "kind") == "uniform" {
+			if binding, binding_ok := json_get_object(field, "binding");
+			   binding_ok && json_get_string(binding, "kind") == "uniform" {
 				offset := json_get_int(binding, "offset")
 				size := json_get_int(binding, "size")
 
@@ -398,7 +394,11 @@ emit_struct_definition :: proc(
 	append(emitted, struct_name)
 }
 
-generate_shader_bindings :: proc(json_path: string, output_file_name: string, output_package_name: string) {
+generate_shader_bindings :: proc(
+	json_path: string,
+	output_file_name: string,
+	output_package_name: string,
+) {
 	data, ok := os.read_entire_file_from_path(json_path, allocator = context.allocator)
 	if ok != nil {
 		fmt.eprintln("Failed to read reflection file:", json_path)
@@ -452,7 +452,8 @@ generate_shader_bindings :: proc(json_path: string, output_file_name: string, ou
 				name = json_get_string(entry, "name"),
 			}
 
-			if group_size, ok := json_get_array(entry, "threadGroupSize"); ok && len(group_size) >= 3 {
+			if group_size, ok := json_get_array(entry, "threadGroupSize");
+			   ok && len(group_size) >= 3 {
 				entry_meta.thread_group_size = [3]int {
 					int(group_size[0].(json.Float)),
 					int(group_size[1].(json.Float)),
@@ -465,7 +466,12 @@ generate_shader_bindings :: proc(json_path: string, output_file_name: string, ou
 					binding := binding_val.(json.Object)
 					binding_name := json_get_string(binding, "name")
 					if binding_obj, binding_ok := json_get_object(binding, "binding"); binding_ok {
-						record_binding(binding_name, binding_obj, &uniform_buffer_size, &descriptor_slots)
+						record_binding(
+							binding_name,
+							binding_obj,
+							&uniform_buffer_size,
+							&descriptor_slots,
+						)
 					}
 				}
 			}
@@ -524,7 +530,8 @@ generate_shader_bindings :: proc(json_path: string, output_file_name: string, ou
 	generated_source := strings.clone(strings.to_string(sb), context.allocator)
 	defer delete(generated_source)
 
-	if write_err := os.write_entire_file(output_odin_path, data = generated_source); write_err != nil {
+	if write_err := os.write_entire_file(output_odin_path, data = generated_source);
+	   write_err != nil {
 		fmt.eprintln("Failed to write output file:", output_odin_path, write_err)
 	}
 }

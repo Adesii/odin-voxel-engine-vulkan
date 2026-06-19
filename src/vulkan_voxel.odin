@@ -2,25 +2,23 @@ package main
 
 import vma "../vendor/odin-vma"
 import "core:fmt"
-import "core:math/rand"
 import "core:mem"
 import v "shaders/voxel_shader"
 import vk "vendor:vulkan"
 import "vulkan"
 
-
-Voxel :: struct {
-	color: u32, // Packed RGBA8 format
-}
+MAX_VOLUMES :: 256
 
 Voxel_Buffer_Context :: struct {
 	uniform_buffer:          vulkan.vulkan_buffer,
-	voxel_buffer:            vulkan.vulkan_buffer,
 	descriptor_set:          vk.DescriptorSet,
 	descriptor_set_layout:   vk.DescriptorSetLayout,
 	compute_pipeline_layout: vk.PipelineLayout,
 	compute_pipeline:        vk.Pipeline,
 	blit_image:              vulkan.vulkan_image,
+	volumes:                 [dynamic]VoxelVolumeCPU,
+	volume_buffer:           vulkan.vulkan_buffer,
+	uniform_buffer_size:     int,
 }
 
 Camera :: struct {
@@ -34,22 +32,15 @@ Camera :: struct {
 vulkan_init_voxel_buffers :: proc(r: ^vulkan.vulkan_renderer) {
 	ctx := &state.voxel_ctx
 	grid_size := state.grid_size
+	ctx.uniform_buffer_size = size_of(v.CameraUniforms) + (MAX_VOLUMES * size_of(v.VoxelVolume))
 	// Create uniform buffer
 	ctx.uniform_buffer = vulkan.create_buffer(
 		r,
-		v.VOXEL_UNIFORM_BUFFER_SIZE,
+		ctx.uniform_buffer_size,
 		{.UNIFORM_BUFFER},
 		{.HOST_VISIBLE, .HOST_COHERENT},
 	)
 
-	// Create voxel buffer (initially empty, will be updated each frame)
-	voxel_buffer_size := grid_size.x * grid_size.y * grid_size.z * size_of(Voxel)
-	ctx.voxel_buffer = vulkan.create_buffer(
-		r,
-		int(voxel_buffer_size),
-		{.STORAGE_BUFFER, .TRANSFER_DST},
-		{.DEVICE_LOCAL},
-	)
 
 	// Allocate descriptor set for the voxel shader
 	ctx.descriptor_set = vulkan.allocate_descriptor_set(
@@ -57,7 +48,7 @@ vulkan_init_voxel_buffers :: proc(r: ^vulkan.vulkan_renderer) {
 		"voxel_shader",
 		{.COMPUTE},
 		{
-			{binding = v.VOXEL_BINDING_DATA, type = .UNIFORM_BUFFER},
+			{binding = v.VOXEL_BINDING_G_CAMERA, type = .UNIFORM_BUFFER},
 			{binding = v.VOXEL_BINDING_G_VOLUME, type = .STORAGE_BUFFER},
 			{binding = v.VOXEL_BINDING_G_OUTPUTFRAMEBUFFER, type = .STORAGE_IMAGE},
 		},
@@ -130,15 +121,44 @@ vulkan_init_voxel_buffers :: proc(r: ^vulkan.vulkan_renderer) {
 		view       = view,
 		sampler    = sampler,
 	}
-	vulkan_update_voxel_descriptor_set(r, ctx)
 
 	vulkan.renderer.voxel.image_blit = ctx.blit_image
 	//Test voxel entry point
+	// volume1 := voxel_create_new_volume(r, [3]u32{0, 0, 0}, [3]u32{64, 64, 64})
+	// append(&ctx.volumes, volume1)
+	// volume2 := voxel_create_new_volume(r, [3]u32{16, 0, 0}, [3]u32{64, 64, 64})
+	// append(&ctx.volumes, volume2)
+	//
+	// vulkan_upload_test_voxels(r, volume1)
+	// vulkan_upload_test_voxels(r, volume2)
 
-	state.grid_size = {64, 64, 64}
-	vulkan_upload_test_voxels(r, &state.voxel_ctx, state.grid_size)
+	add_new_volume(r, ctx, [3]u32{0, 0, 0}, [3]u32{64, 64, 64})
+	add_new_volume(r, ctx, [3]u32{16, 0, 0}, [3]u32{64, 64, 64})
+	add_new_volume(r, ctx, [3]u32{0, 96, 5}, [3]u32{64, 64, 64})
+
+	amount := int(size_of(v.VoxelVolume) * u32(len(ctx.volumes)))
+
+	ctx.volume_buffer = vulkan.create_buffer(
+		r,
+		amount,
+		{.STORAGE_BUFFER, .TRANSFER_DST},
+		{.HOST_VISIBLE, .HOST_COHERENT},
+	)
+
+	vulkan_update_voxel_descriptor_set(r, ctx)
 	vulkan_create_compute_pipeline_for_voxels(r, &state.voxel_ctx)
+}
 
+add_new_volume :: proc(
+	r: ^vulkan.vulkan_renderer,
+	ctx: ^Voxel_Buffer_Context,
+	origin: [3]u32,
+	size: [3]u32,
+) {
+	new_volume := voxel_create_new_volume(r, origin, size)
+	append(&ctx.volumes, new_volume)
+	vulkan_upload_test_voxels(r, new_volume)
+	vulkan_update_voxel_descriptor_set(r, ctx) // Update descriptor set to account for new buffer data
 }
 vulkan_update_voxel_descriptor_set :: proc(
 	r: ^vulkan.vulkan_renderer,
@@ -148,14 +168,14 @@ vulkan_update_voxel_descriptor_set :: proc(
 	uniform_buffer_info := vk.DescriptorBufferInfo {
 		buffer = ctx.uniform_buffer.buffer,
 		offset = 0,
-		range  = vk.DeviceSize(v.VOXEL_UNIFORM_BUFFER_SIZE), // Handled by your reflection constant!
+		range  = vk.DeviceSize(ctx.uniform_buffer_size), // Handled by your reflection constant!
 	}
 
 	// 2. Point to your massive Voxel Storage Buffer
 	voxel_buffer_info := vk.DescriptorBufferInfo {
-		buffer = ctx.voxel_buffer.buffer,
+		buffer = ctx.volume_buffer.buffer,
 		offset = 0,
-		range  = vk.DeviceSize(vk.WHOLE_SIZE), // Maps the entire array automatically
+		range  = vk.DeviceSize(size_of(v.VoxelVolume) * u32(len(ctx.volumes))),
 	}
 
 	// 3. Create an array of writes (one per binding slot)
@@ -202,74 +222,11 @@ vulkan_update_voxel_descriptor_set :: proc(
 }
 
 
-vulkan_upload_test_voxels :: proc(
-	r: ^vulkan.vulkan_renderer,
-	ctx: ^Voxel_Buffer_Context,
-	grid_size: [3]u32,
-) {
-	total_voxels := grid_size.x * grid_size.y * grid_size.z
-	cpu_data := make([]Voxel, total_voxels, context.temp_allocator)
-
-	// Fill data with a test sphere
-	center := [3]f32{f32(grid_size.x) / 2, f32(grid_size.y) / 2, f32(grid_size.z) / 2}
-	radius := f32(grid_size.x) * 0.4
-
-	for z in 0 ..< grid_size.z {
-		for y in 0 ..< grid_size.y {
-			for x in 0 ..< grid_size.x {
-				idx := x + (y * grid_size.x) + (z * grid_size.x * grid_size.y)
-
-				dx := f32(x) - center.x
-				dy := f32(y) - center.y
-				dz := f32(z) - center.z
-				dist := dx * dx + dy * dy + dz * dz
-
-				if dist < radius * radius {
-					random_color := u32(
-						((u32(rand.float32_range(0, 1) * 255)) << 16) |
-						((u32(rand.float32_range(0, 1) * 255)) << 8) |
-						(u32(rand.float32_range(0, 1) * 255)),
-					)
-					cpu_data[idx].color = 0xFF000000 | random_color // Opaque with random RGB
-				} else {
-					// Empty space voxel
-					cpu_data[idx].color = 0x00000000
-				}
-			}
-		}
-	}
-
-	// Upload data to GPU
-
-	voxel_buffer_size := int(total_voxels * size_of(Voxel))
-	staging_buffer := vulkan.create_buffer(
-		r,
-		voxel_buffer_size,
-		{.TRANSFER_SRC},
-		{.HOST_VISIBLE, .HOST_COHERENT},
-	)
-
-	vulkan.write_buffer(r, &staging_buffer, raw_data(cpu_data), voxel_buffer_size)
-
-	cmd := vulkan.begin_single_use_commands(r)
-	copy_region := vk.BufferCopy {
-		srcOffset = 0,
-		dstOffset = 0,
-		size      = vk.DeviceSize(voxel_buffer_size),
-	}
-	vk.CmdCopyBuffer(cmd, staging_buffer.buffer, ctx.voxel_buffer.buffer, 1, &copy_region)
-	vulkan.end_single_use_commands(r, cmd)
-
-	vulkan.destroy_buffer(r, &staging_buffer)
-
-}
-
-
 vulkan_update_voxel_uniforms :: proc(
 	r: ^vulkan.vulkan_renderer,
 	ctx: ^Voxel_Buffer_Context,
 	camera: Camera,
-	grid_size: [3]u32,
+	volumes: []VoxelVolumeCPU,
 ) {
 	// Create uniform data
 
@@ -283,11 +240,34 @@ vulkan_update_voxel_uniforms :: proc(
 	}
 	mem.copy(data, &runtime_camera, size_of(v.CameraUniforms))
 
-	volume_data_ptr := mem.ptr_offset(transmute(^u8)data, int(v.VOXEL_UNIFORM_BUFFER_SIZE - 16))
-	volume_data := v.VoxelVolume {
-		size = grid_size,
+	assert(len(volumes) <= MAX_VOLUMES, "Exceeded maximum allowed voxel volumes!")
+	packed_volumes := make([]v.VoxelVolume, len(volumes), context.temp_allocator)
+	defer delete(packed_volumes)
+
+	for idx := 0; idx < len(volumes); idx += 1 {
+		// 2. Fetch via a strict pointer reference to prevent any structural value copy decay
+		src_volume := &volumes[idx]
+		assert(
+			src_volume.voxel_buffer.buffer != 0,
+			"CRITICAL: The target buffer handle itself is uninitialized (0)!",
+		)
+		gpu_ptr := vulkan.get_gpu_address(r.device, src_volume.voxel_buffer.buffer)
+
+		packed_volumes[idx] = v.VoxelVolume {
+			origin_x = src_volume.origin.x,
+			origin_y = src_volume.origin.y,
+			origin_z = src_volume.origin.z,
+			size_x   = src_volume.size.x,
+			size_y   = src_volume.size.y,
+			size_z   = src_volume.size.z,
+			data     = u64(gpu_ptr),
+		}
 	}
-	mem.copy(volume_data_ptr, &volume_data, size_of(v.VoxelVolume))
+
+	volume_data: rawptr
+	vma.MapMemory(r.allocator_vma, ctx.volume_buffer.allocation, &volume_data)
+	mem.copy(volume_data, raw_data(packed_volumes), size_of(v.VoxelVolume) * len(packed_volumes))
+	vma.UnmapMemory(r.allocator_vma, ctx.volume_buffer.allocation)
 
 	vma.UnmapMemory(r.allocator_vma, ctx.uniform_buffer.allocation)
 }
@@ -301,7 +281,7 @@ vulkan_create_compute_pipeline_for_voxels :: proc(
 		"voxel",
 		{.COMPUTE},
 		{
-			{binding = v.VOXEL_BINDING_DATA, type = .UNIFORM_BUFFER},
+			{binding = v.VOXEL_BINDING_G_CAMERA, type = .UNIFORM_BUFFER},
 			{binding = v.VOXEL_BINDING_G_VOLUME, type = .STORAGE_BUFFER},
 			{binding = v.VOXEL_BINDING_G_OUTPUTFRAMEBUFFER, type = .STORAGE_IMAGE},
 		},
@@ -319,7 +299,7 @@ vulkan_run :: proc(r: ^vulkan.vulkan_renderer, cmd: vk.CommandBuffer) {
 	ctx := &state.voxel_ctx
 	camera := state.camera
 	grid_size := state.grid_size
-	vulkan_update_voxel_uniforms(r, ctx, camera, grid_size)
+	vulkan_update_voxel_uniforms(r, ctx, camera, ctx.volumes[:])
 
 	// Record and submit compute command buffer
 	vk.CmdBindPipeline(cmd, .COMPUTE, ctx.compute_pipeline)
