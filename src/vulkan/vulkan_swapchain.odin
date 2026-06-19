@@ -11,12 +11,13 @@ choose_surface_format :: proc(formats: []vk.SurfaceFormatKHR) -> vk.SurfaceForma
 	return formats[0]
 }
 
+//TODO: make this configurable if the use wants to change the frame rate cap or something
 choose_present_mode :: proc(present_modes: []vk.PresentModeKHR) -> vk.PresentModeKHR {
-	for mode in present_modes {
-		if mode == .MAILBOX {
-			return mode
-		}
-	}
+	// for mode in present_modes {
+	// 	if mode == .MAILBOX {
+	// 		return mode
+	// 	}
+	// }
 	return .FIFO
 }
 
