@@ -114,85 +114,86 @@ void main(uint3 dispatchThreadID: SV_DispatchThreadID) {
 
     float3 size = float3(volume.size_x, volume.size_y, volume.size_z);
     float3 origin = float3(volume.origin_x, volume.origin_y, volume.origin_z);
-    float starting_distance = get_start_distance(
-        ray, origin, size); // How close the ray starts to the camera
-    // finalColor = float4((starting_distance + 1.0) / 500.0f, 0.0, 0.0,
-    //                     1.0); // Reset to black for this volume, so we
-    // break;
-    float t = starting_distance;
-    float max_dist = starting_distance + 500.0; // How far the camera can see
-    float step_size =
-        0.01; // Smaller = sharper voxels, larger = faster performance
-
-    // if (dispatchThreadID.x == 0 &&
-    //     dispatchThreadID.y == 0) // Print volume info for the first thread
-    //     only
-    // printf("voxel array pointer: 0x%p\n", volume.data);
-    // printf("first color: %u\n", volume.data[0].color);
-    // return;
+    float starting_distance = get_start_distance(ray, origin, size);
     if (starting_distance < 0.0)
-      continue; // Skip this volume if the ray starts behind it
-    int max_steps = 10000;
-    for (int i = 0; i < max_steps && t < max_dist; i++) {
-      float3 position = ray.origin + ray.direction * t;
+      continue;
 
-      float3 localPos = position - origin;
+    float t = starting_distance;
+    float max_dist = t + 5000.0;
+    float3 ray_dir = ray.direction;
+    float3 inv_dir = 1.0 / ray_dir;
+    float3 tDelta = abs(inv_dir);
 
-      // Check if the ray position has entered our 3D grid boundary
-      if (localPos.x >= 0 && localPos.x < size.x && localPos.y >= 0 &&
-          localPos.y < size.y && localPos.z >= 0 && localPos.z < size.z) {
+    float3 start_pos = ray.origin + t * ray_dir - origin;
+    int3 voxel = int3(floor(start_pos + (ray_dir * 0.0001)));
 
-        // Convert float 3D coordinate to exact integer voxel coordinate
-        uint3 voxelCoord = uint3(localPos);
+    float3 tMax;
+    tMax.x = (ray_dir.x != 0)
+                 ? (float(voxel.x + (ray_dir.x > 0 ? 1 : 0)) - start_pos.x) *
+                       inv_dir.x
+                 : 1e30;
+    tMax.y = (ray_dir.y != 0)
+                 ? (float(voxel.y + (ray_dir.y > 0 ? 1 : 0)) - start_pos.y) *
+                       inv_dir.y
+                 : 1e30;
+    tMax.z = (ray_dir.z != 0)
+                 ? (float(voxel.z + (ray_dir.z > 0 ? 1 : 0)) - start_pos.z) *
+                       inv_dir.z
+                 : 1e30;
 
-        // Translate 3D coordinates to your flat dense 1D array index!
+    for (int i = 0; i < 10000 && t < max_dist; i++) {
+      if (voxel.x >= 0 && voxel.x < (int)size.x && voxel.y >= 0 &&
+          voxel.y < (int)size.y && voxel.z >= 0 && voxel.z < (int)size.z) {
+        uint3 voxelCoord = uint3(voxel);
         uint flatIndex = voxelCoord.x + (voxelCoord.y * volume.size_x) +
                          (voxelCoord.z * volume.size_x * volume.size_y);
-        // Calculate the absolute upper limit of your allocated buffer
         uint maxVoxels = volume.size_x * volume.size_y * volume.size_z;
-        if (flatIndex >= maxVoxels) {
-          // Out of bounds, skip this voxel
-          finalColor = float4(1.0, 0.0, 1.0, 1.0); // Magenta error color
-          break;
-        }
-        // uint64_t raw_address = ((uint64_t)volume.data.y << 32) |
-        // volume.data.x; if (dispatchThreadID.x == 0 &&
-        //     dispatchThreadID.y ==
-        //         0) // Print volume info for the first thread only
-        //   printf("voxel array pointer: 0x%016llX\n", volume.data);
-        // return;
-        uint packed_color = volume.data[flatIndex].color;
-        // if (dispatchThreadID.x == 0 &&
-        //     dispatchThreadID.y ==
-        //         0) // Print volume info for the first thread only
-        //   printf(
-        //       "Ray position: (%f, %f, %f), Voxel coord: (%u, %u, %u), Flat "
-        //       "index: %u, Packed color: 0x%08X\n", position.x, position.y,
-        //       position.z, voxelCoord.x, voxelCoord.y, voxelCoord.z,
-        //       flatIndex, packed_color);
 
-        // If the voxel color is not transparent, we hit a voxel!
-        if (packed_color != 0) {
-          // Unpack RGBA8 color from the u32
-          float r = (float)((packed_color >> 24) & 0xFF) / 255.0;
-          float g = (float)((packed_color >> 16) & 0xFF) / 255.0;
-          float b = (float)((packed_color >> 8) & 0xFF) / 255.0;
-
-          // Add a tiny bit of distance shading so it looks beautifully 3D
-          float depth_shadow = 1.0 / (1.0 + (t * t * 0.0005));
-          if (depth > t) {
-            depth = t;
-            finalColor = float4(float3(r, g, b) * depth_shadow, 1.0);
+        if (flatIndex < maxVoxels) {
+          uint packed_color = volume.data[flatIndex].color;
+          if (packed_color != 0) {
+            float r = (float)((packed_color >> 24) & 0xFF) / 255.0;
+            float g = (float)((packed_color >> 16) & 0xFF) / 255.0;
+            float b = (float)((packed_color >> 8) & 0xFF) / 255.0;
+            float3 global_voxel_pos = origin + float3(voxel);
+            float distance_to_voxel = length(global_voxel_pos - ray.origin);
+            float depth_shadow =
+                1.0 / (1.0 + (distance_to_voxel * distance_to_voxel * 0.0005));
+            if (depth > distance_to_voxel) {
+              depth = distance_to_voxel;
+              finalColor = float4(float3(r, g, b) * depth_shadow, 1.0);
+            }
+            break;
           }
+        } else {
+          finalColor = float4(1.0, 0.0, 1.0, 1.0);
           break;
         }
-      }
-      // if we aren't inside the volume boundary stop marching this volume and
-      // move to the next one (if any)
-      else if (t - starting_distance > 5.0) {
+      } else {
         break;
       }
-      t += step_size;
+
+      if (tMax.x < tMax.y) {
+        if (tMax.x < tMax.z) {
+          t += tMax.x;
+          tMax.x += tDelta.x;
+          voxel.x += (ray_dir.x > 0 ? 1 : -1);
+        } else {
+          t += tMax.z;
+          tMax.z += tDelta.z;
+          voxel.z += (ray_dir.z > 0 ? 1 : -1);
+        }
+      } else {
+        if (tMax.y < tMax.z) {
+          t += tMax.y;
+          tMax.y += tDelta.y;
+          voxel.y += (ray_dir.y > 0 ? 1 : -1);
+        } else {
+          t += tMax.z;
+          tMax.z += tDelta.z;
+          voxel.z += (ray_dir.z > 0 ? 1 : -1);
+        }
+      }
     }
   }
   // if (dispatchThreadID.x == 0 &&
