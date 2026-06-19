@@ -139,6 +139,9 @@ vulkan_init_voxel_buffers :: proc(r: ^vulkan.vulkan_renderer) {
 	add_new_volume(r, ctx, [3]u32{16, 0, 0}, [3]u32{64, 64, 64})
 	add_new_volume(r, ctx, [3]u32{0, 96, 5}, [3]u32{64, 64, 64})
 
+	add_new_volume(r, ctx, [3]u32{32, 32, 0}, [3]u32{64, 64, 64})
+	add_new_volume(r, ctx, [3]u32{16, 96, 0}, [3]u32{64, 64, 64})
+	// add_new_volume(r, ctx, [3]u32{128, 96, 0}, [3]u32{512, 512, 512})
 	amount := int(size_of(v.VoxelVolume) * u32(len(ctx.volumes)))
 
 	for i := 0; i < vulkan.MAX_FRAMES_IN_FLIGHT; i += 1 {

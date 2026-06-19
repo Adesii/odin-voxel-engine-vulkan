@@ -119,7 +119,7 @@ void main(uint3 dispatchThreadID: SV_DispatchThreadID) {
       continue;
 
     float t = starting_distance;
-    float max_dist = t + 5000.0;
+    float max_dist = t + 500000.0;
     float3 ray_dir = ray.direction;
     float3 inv_dir = 1.0 / ray_dir;
     float3 tDelta = abs(inv_dir);
@@ -141,7 +141,7 @@ void main(uint3 dispatchThreadID: SV_DispatchThreadID) {
                        inv_dir.z
                  : 1e30;
 
-    for (int i = 0; i < 10000 && t < max_dist; i++) {
+    for (int i = 0; i < 1000000 && t < max_dist; i++) {
       if (voxel.x >= 0 && voxel.x < (int)size.x && voxel.y >= 0 &&
           voxel.y < (int)size.y && voxel.z >= 0 && voxel.z < (int)size.z) {
         uint3 voxelCoord = uint3(voxel);
@@ -157,8 +157,7 @@ void main(uint3 dispatchThreadID: SV_DispatchThreadID) {
             float b = (float)((packed_color >> 8) & 0xFF) / 255.0;
             float3 global_voxel_pos = origin + float3(voxel);
             float distance_to_voxel = length(global_voxel_pos - ray.origin);
-            float depth_shadow =
-                1.0 / (1.0 + (distance_to_voxel * distance_to_voxel * 0.0005));
+            float depth_shadow = 1.0 / (1.0 + (distance_to_voxel * 0.0005));
             if (depth > distance_to_voxel) {
               depth = distance_to_voxel;
               finalColor = float4(float3(r, g, b) * depth_shadow, 1.0);
