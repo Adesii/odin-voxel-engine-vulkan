@@ -13,7 +13,6 @@ compile :: proc(srcdir: string, destdir: string) {
 		return
 	}
 
-	// files := strings.builder_make()
 	fileinfos, err := os.read_all_directory_by_path(srcdir, context.allocator)
 	defer os.file_info_slice_delete(fileinfos, context.allocator)
 	if err != nil {
@@ -47,7 +46,14 @@ compile :: proc(srcdir: string, destdir: string) {
 			compile_file(thing[0], file.fullpath, destdir)
 			continue
 		}
-		if src_mod_time._nsec > dest_mod_time._nsec {
+		force_recompile: bool
+		for arg in os.args {
+			if arg == "FORCE_RECOMPILE" {
+				force_recompile = true
+				break
+			}
+		}
+		if src_mod_time._nsec > dest_mod_time._nsec || force_recompile {
 			fmt.printfln("Source file is newer than destination file, recompiling: %s", file.name)
 			compile_file(thing[0], file.fullpath, destdir)
 		}

@@ -50,49 +50,48 @@
         },
         {
             "name": "g_volume",
-            "bindings": [
-                {"kind": "descriptorTableSlot", "index": 1},
-                {"kind": "uniform", "offset": 144, "size": 16, "elementStride": 0}
-            ],
+            "binding": {"kind": "descriptorTableSlot", "index": 1},
             "type": {
-                "kind": "struct",
-                "name": "VoxelVolume",
-                "fields": [
-                    {
-                        "name": "size",
-                        "type": {
-                            "kind": "vector",
-                            "elementCount": 3,
-                            "elementType": {
-                                "kind": "scalar",
-                                "scalarType": "uint32"
-                            }
+                "kind": "resource",
+                "baseShape": "structuredBuffer",
+                "resultType": {
+                    "kind": "struct",
+                    "name": "VoxelVolume",
+                    "fields": [
+                        {
+                            "name": "origin",
+                            "type": {
+                                "kind": "vector",
+                                "elementCount": 3,
+                                "elementType": {
+                                    "kind": "scalar",
+                                    "scalarType": "uint32"
+                                }
+                            },
+                            "binding": {"kind": "uniform", "offset": 0, "size": 12, "elementStride": 4}
                         },
-                        "binding": {"kind": "uniform", "offset": 0, "size": 12, "elementStride": 4}
-                    },
-                    {
-                        "name": "data",
-                        "type": {
-                            "kind": "resource",
-                            "baseShape": "structuredBuffer",
-                            "resultType": {
-                                "kind": "struct",
-                                "name": "Voxel",
-                                "fields": [
-                                    {
-                                        "name": "color",
-                                        "type": {
-                                            "kind": "scalar",
-                                            "scalarType": "uint32"
-                                        },
-                                        "binding": {"kind": "uniform", "offset": 0, "size": 4, "elementStride": 0}
-                                    }
-                                ]
-                            }
+                        {
+                            "name": "size",
+                            "type": {
+                                "kind": "vector",
+                                "elementCount": 3,
+                                "elementType": {
+                                    "kind": "scalar",
+                                    "scalarType": "uint32"
+                                }
+                            },
+                            "binding": {"kind": "uniform", "offset": 16, "size": 12, "elementStride": 4}
                         },
-                        "binding": {"kind": "descriptorTableSlot", "index": 0}
-                    }
-                ]
+                        {
+                            "name": "data",
+                            "type": {
+                                "kind": "pointer",
+                                "valueType": "Voxel"
+                            },
+                            "binding": {"kind": "uniform", "offset": 32, "size": 8, "elementStride": 0}
+                        }
+                    ]
+                }
             }
         },
         {
@@ -139,10 +138,7 @@
                 },
                 {
                     "name": "g_volume",
-                    "bindings": [
-                        {"kind": "descriptorTableSlot", "index": 1},
-                        {"kind": "uniform", "offset": 144, "size": 16, "elementStride": 0}
-                    ]
+                    "binding": {"kind": "descriptorTableSlot", "index": 1}
                 },
                 {
                     "name": "g_outputFramebuffer",

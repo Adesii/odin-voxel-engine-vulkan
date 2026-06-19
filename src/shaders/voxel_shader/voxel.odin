@@ -8,7 +8,11 @@ CameraUniforms :: struct #align(16) {
 }
 
 VoxelVolume :: struct #align(16) {
-	size: [3]u32, // offset: 0, size: 12
+	origin: [3]u32, // offset: 0, size: 12
+	_pad_16: [4]u8,
+	size: [3]u32, // offset: 16, size: 12
+	_pad_32: [4]u8,
+	data: rawptr, // offset: 32, size: 8
 }
 
 // --- VOXEL Pipeline Constants ---
@@ -16,7 +20,7 @@ VOXEL_MAIN_ENTRY_POINT :: "main"
 VOXEL_THREAD_X :: 8
 VOXEL_THREAD_Y :: 8
 VOXEL_THREAD_Z :: 1
-VOXEL_UNIFORM_BUFFER_SIZE :: 160
+VOXEL_UNIFORM_BUFFER_SIZE :: 144
+VOXEL_BINDING_G_CAMERA :: 0
 VOXEL_BINDING_G_VOLUME :: 1
-VOXEL_BINDING_DATA :: 0
 VOXEL_BINDING_G_OUTPUTFRAMEBUFFER :: 2

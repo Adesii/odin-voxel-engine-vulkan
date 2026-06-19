@@ -3,35 +3,9 @@ import utils.ray;
 import utils.voxel_types;
 
 uniform CameraUniforms g_camera;
-uniform VoxelVolume g_volume;
+uniform StructuredBuffer<VoxelVolume> g_volume;
 
 uniform RWTexture2D<float4> g_outputFramebuffer;
-
-// Generates a clean 3D perspective ray from a pixel coordinate
-// Ray generate_camera_ray(uint2 pixelCoord, float2 screenSize) {
-//   // 1. Convert pixel coordinate to Normalized Device Coordinates (-1 to 1)
-//   float2 ndc = (float2(pixelCoord) / screenSize) * 2.0 - 1.0;
-//   ndc.y = -ndc.y; // Flip Y for Vulkan screen coordinate space
-//
-//   // 2. Un-project the NDC screen point into 3D space near and far planes
-//   // We use a clip-space point on the near plane (z = 0.0)
-//   float4 clipTarget = float4(ndc.x, ndc.y, 0.0, 1.0);
-//
-//   // Multiply by the inverse view-projection matrix
-//   float4 worldTarget = mul(g_camera.invViewProj, clipTarget);
-//   worldTarget /=
-//       worldTarget.w; // Perspective divide to get true 3D world coordinate
-//
-//   Ray ray;
-//   ray.origin = g_camera.position;
-//
-//   // The direction is simply the vector from the camera eye to our
-//   un-projected
-//   // world point
-//   ray.direction = normalize(worldTarget.xyz - ray.origin);
-//
-//   return ray;
-// }
 
 // voxel.slang
 
@@ -52,6 +26,12 @@ Ray generate_camera_ray(uint2 pixelCoord, float2 screenSize) {
   ray.direction = normalize(worldTarget.xyz - ray.origin);
 
   return ray;
+}
+
+VoxelVolume get_volume() {
+  // For this demo, we just have one volume at index 0. You can expand this
+  // to support multiple volumes with different origins and sizes!
+  return g_volume[0];
 }
 
 [shader("compute")]
@@ -77,7 +57,8 @@ void main(uint3 dispatchThreadID: SV_DispatchThreadID) {
   // g_outputFramebuffer[pixelCoord] = float4(abs(ray.direction), 1.0);
   // return; // Short-circuit the rest of the raymarcher loop
   // 2. Raymarching parameters
-  float3 size = float3(g_volume.size);
+  VoxelVolume volume = get_volume();
+  float3 size = float3(volume.size);
   float t = 0.0;
   float max_dist = 200.0; // How far the camera can see
   float step_size =
@@ -99,7 +80,7 @@ void main(uint3 dispatchThreadID: SV_DispatchThreadID) {
       uint flatIndex = voxelCoord.x + (voxelCoord.y * (uint)size.x) +
                        (voxelCoord.z * (uint)size.x * (uint)size.y);
 
-      uint packed_color = g_volume.data[flatIndex].color;
+      uint packed_color = volume.data[flatIndex].color;
 
       // If the voxel color is not transparent, we hit a voxel!
       if (packed_color != 0) {

@@ -6,7 +6,7 @@ build:
   odin build src -out:bin/voxel
 
 build-shaders-debug:
-  odin run src/utils -debug # This builds the reflection data for shaders
+  odin run src/utils -debug -- FORCE_RECOMPILE
 
 build-shaders:
   odin run src/utils -debug # This builds the reflection data for shaders
