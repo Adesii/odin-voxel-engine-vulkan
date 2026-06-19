@@ -10,14 +10,14 @@ import "vulkan"
 MAX_VOLUMES :: 256
 
 Voxel_Buffer_Context :: struct {
-	uniform_buffer:          vulkan.vulkan_buffer,
-	descriptor_set:          vk.DescriptorSet,
+	uniform_buffer:          [vulkan.MAX_FRAMES_IN_FLIGHT]vulkan.vulkan_buffer,
+	descriptor_set:          [vulkan.MAX_FRAMES_IN_FLIGHT]vk.DescriptorSet,
 	descriptor_set_layout:   vk.DescriptorSetLayout,
 	compute_pipeline_layout: vk.PipelineLayout,
 	compute_pipeline:        vk.Pipeline,
 	blit_image:              vulkan.vulkan_image,
 	volumes:                 [dynamic]VoxelVolumeCPU,
-	volume_buffer:           vulkan.vulkan_buffer,
+	volume_buffer:           [vulkan.MAX_FRAMES_IN_FLIGHT]vulkan.vulkan_buffer,
 	uniform_buffer_size:     int,
 }
 
@@ -34,25 +34,28 @@ vulkan_init_voxel_buffers :: proc(r: ^vulkan.vulkan_renderer) {
 	grid_size := state.grid_size
 	ctx.uniform_buffer_size = size_of(v.CameraUniforms) + (MAX_VOLUMES * size_of(v.VoxelVolume))
 	// Create uniform buffer
-	ctx.uniform_buffer = vulkan.create_buffer(
-		r,
-		ctx.uniform_buffer_size,
-		{.UNIFORM_BUFFER},
-		{.HOST_VISIBLE, .HOST_COHERENT},
-	)
+	for i := 0; i < vulkan.MAX_FRAMES_IN_FLIGHT; i += 1 {
+
+		ctx.uniform_buffer[i] = vulkan.create_buffer(
+			r,
+			ctx.uniform_buffer_size,
+			{.UNIFORM_BUFFER},
+			{.HOST_VISIBLE, .HOST_COHERENT},
+		)
 
 
-	// Allocate descriptor set for the voxel shader
-	ctx.descriptor_set = vulkan.allocate_descriptor_set(
-		r,
-		"voxel_shader",
-		{.COMPUTE},
-		{
-			{binding = v.VOXEL_BINDING_G_CAMERA, type = .UNIFORM_BUFFER},
-			{binding = v.VOXEL_BINDING_G_VOLUME, type = .STORAGE_BUFFER},
-			{binding = v.VOXEL_BINDING_G_OUTPUTFRAMEBUFFER, type = .STORAGE_IMAGE},
-		},
-	)
+		// Allocate descriptor set for the voxel shader
+		ctx.descriptor_set[i] = vulkan.allocate_descriptor_set(
+			r,
+			"voxel_shader",
+			{.COMPUTE},
+			{
+				{binding = v.VOXEL_BINDING_G_CAMERA, type = .UNIFORM_BUFFER},
+				{binding = v.VOXEL_BINDING_G_VOLUME, type = .STORAGE_BUFFER},
+				{binding = v.VOXEL_BINDING_G_OUTPUTFRAMEBUFFER, type = .STORAGE_IMAGE},
+			},
+		)
+	}
 
 	image, alloc := vulkan.create_image(
 		r,
@@ -138,14 +141,16 @@ vulkan_init_voxel_buffers :: proc(r: ^vulkan.vulkan_renderer) {
 
 	amount := int(size_of(v.VoxelVolume) * u32(len(ctx.volumes)))
 
-	ctx.volume_buffer = vulkan.create_buffer(
-		r,
-		amount,
-		{.STORAGE_BUFFER, .TRANSFER_DST},
-		{.HOST_VISIBLE, .HOST_COHERENT},
-	)
+	for i := 0; i < vulkan.MAX_FRAMES_IN_FLIGHT; i += 1 {
+		ctx.volume_buffer[i] = vulkan.create_buffer(
+			r,
+			amount,
+			{.STORAGE_BUFFER, .TRANSFER_DST},
+			{.HOST_VISIBLE, .HOST_COHERENT},
+		)
 
-	vulkan_update_voxel_descriptor_set(r, ctx)
+		vulkan_update_voxel_descriptor_set(r, ctx, i)
+	}
 	vulkan_create_compute_pipeline_for_voxels(r, &state.voxel_ctx)
 }
 
@@ -158,22 +163,23 @@ add_new_volume :: proc(
 	new_volume := voxel_create_new_volume(r, origin, size)
 	append(&ctx.volumes, new_volume)
 	vulkan_upload_test_voxels(r, new_volume)
-	vulkan_update_voxel_descriptor_set(r, ctx) // Update descriptor set to account for new buffer data
+	// vulkan_update_voxel_descriptor_set(r, ctx) // Update descriptor set to account for new buffer data
 }
 vulkan_update_voxel_descriptor_set :: proc(
 	r: ^vulkan.vulkan_renderer,
 	ctx: ^Voxel_Buffer_Context,
+	index: int,
 ) {
 	// 1. Point to your Uniform Buffer (Camera + Grid Size data)
 	uniform_buffer_info := vk.DescriptorBufferInfo {
-		buffer = ctx.uniform_buffer.buffer,
+		buffer = ctx.uniform_buffer[index].buffer,
 		offset = 0,
 		range  = vk.DeviceSize(ctx.uniform_buffer_size), // Handled by your reflection constant!
 	}
 
 	// 2. Point to your massive Voxel Storage Buffer
 	voxel_buffer_info := vk.DescriptorBufferInfo {
-		buffer = ctx.volume_buffer.buffer,
+		buffer = ctx.volume_buffer[index].buffer,
 		offset = 0,
 		range  = vk.DeviceSize(size_of(v.VoxelVolume) * u32(len(ctx.volumes))),
 	}
@@ -184,7 +190,7 @@ vulkan_update_voxel_descriptor_set :: proc(
 	// Write for Binding 0: Uniform Buffer
 	descriptor_writes[0] = vk.WriteDescriptorSet {
 		sType           = .WRITE_DESCRIPTOR_SET,
-		dstSet          = ctx.descriptor_set,
+		dstSet          = ctx.descriptor_set[index],
 		dstBinding      = 0, // Matches your layout slot 0
 		descriptorCount = 1,
 		descriptorType  = .UNIFORM_BUFFER,
@@ -194,7 +200,7 @@ vulkan_update_voxel_descriptor_set :: proc(
 	// Write for Binding 1: Voxel Storage Buffer
 	descriptor_writes[1] = vk.WriteDescriptorSet {
 		sType           = .WRITE_DESCRIPTOR_SET,
-		dstSet          = ctx.descriptor_set,
+		dstSet          = ctx.descriptor_set[index],
 		dstBinding      = 1, // Matches your layout slot 1
 		descriptorCount = 1,
 		descriptorType  = .STORAGE_BUFFER,
@@ -209,7 +215,7 @@ vulkan_update_voxel_descriptor_set :: proc(
 	// Write for Binding 2: Output Storage Image
 	descriptor_writes[2] = vk.WriteDescriptorSet {
 		sType           = .WRITE_DESCRIPTOR_SET,
-		dstSet          = ctx.descriptor_set,
+		dstSet          = ctx.descriptor_set[index],
 		dstBinding      = 2, // Matches your layout slot 2
 		descriptorCount = 1,
 		descriptorType  = .STORAGE_IMAGE,
@@ -227,11 +233,12 @@ vulkan_update_voxel_uniforms :: proc(
 	ctx: ^Voxel_Buffer_Context,
 	camera: Camera,
 	volumes: []VoxelVolumeCPU,
+	index: int,
 ) {
 	// Create uniform data
 
 	data: rawptr
-	vma.MapMemory(r.allocator_vma, ctx.uniform_buffer.allocation, &data)
+	vma.MapMemory(r.allocator_vma, ctx.uniform_buffer[index].allocation, &data)
 
 	runtime_camera := v.CameraUniforms {
 		viewProj    = camera.view_proj,
@@ -241,7 +248,7 @@ vulkan_update_voxel_uniforms :: proc(
 	mem.copy(data, &runtime_camera, size_of(v.CameraUniforms))
 
 	assert(len(volumes) <= MAX_VOLUMES, "Exceeded maximum allowed voxel volumes!")
-	packed_volumes := make([]v.VoxelVolume, len(volumes), context.temp_allocator)
+	packed_volumes := make([]v.VoxelVolume, len(volumes), context.allocator)
 	defer delete(packed_volumes)
 
 	for idx := 0; idx < len(volumes); idx += 1 {
@@ -265,11 +272,11 @@ vulkan_update_voxel_uniforms :: proc(
 	}
 
 	volume_data: rawptr
-	vma.MapMemory(r.allocator_vma, ctx.volume_buffer.allocation, &volume_data)
+	vma.MapMemory(r.allocator_vma, ctx.volume_buffer[index].allocation, &volume_data)
 	mem.copy(volume_data, raw_data(packed_volumes), size_of(v.VoxelVolume) * len(packed_volumes))
-	vma.UnmapMemory(r.allocator_vma, ctx.volume_buffer.allocation)
+	vma.UnmapMemory(r.allocator_vma, ctx.volume_buffer[index].allocation)
 
-	vma.UnmapMemory(r.allocator_vma, ctx.uniform_buffer.allocation)
+	vma.UnmapMemory(r.allocator_vma, ctx.uniform_buffer[index].allocation)
 }
 
 vulkan_create_compute_pipeline_for_voxels :: proc(
@@ -299,7 +306,8 @@ vulkan_run :: proc(r: ^vulkan.vulkan_renderer, cmd: vk.CommandBuffer) {
 	ctx := &state.voxel_ctx
 	camera := state.camera
 	grid_size := state.grid_size
-	vulkan_update_voxel_uniforms(r, ctx, camera, ctx.volumes[:])
+	frame_index := r.frame_index % vulkan.MAX_FRAMES_IN_FLIGHT
+	vulkan_update_voxel_uniforms(r, ctx, camera, ctx.volumes[:], frame_index)
 
 	// Record and submit compute command buffer
 	vk.CmdBindPipeline(cmd, .COMPUTE, ctx.compute_pipeline)
@@ -309,7 +317,7 @@ vulkan_run :: proc(r: ^vulkan.vulkan_renderer, cmd: vk.CommandBuffer) {
 		ctx.compute_pipeline_layout,
 		0,
 		1,
-		&ctx.descriptor_set,
+		&ctx.descriptor_set[frame_index],
 		0,
 		nil,
 	)
