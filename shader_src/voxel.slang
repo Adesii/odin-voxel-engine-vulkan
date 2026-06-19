@@ -28,6 +28,45 @@ Ray generate_camera_ray(uint2 pixelCoord, float2 screenSize) {
   return ray;
 }
 
+float get_start_distance(Ray ray, float3 volumeOrigin, float3 volumeSize) {
+  float tMin = 0.0; // Do not start behind the camera
+  float tMax = 1e9; // Upper bound for intersection
+  float3 volumeMax = volumeOrigin + volumeSize;
+
+  for (int i = 0; i < 3; i++) {
+    if (abs(ray.direction[i]) < 1e-6) {
+      // Ray is parallel to slab. Miss if origin is outside.
+      if (ray.origin[i] < volumeOrigin[i] || ray.origin[i] > volumeMax[i]) {
+        return -1.0;
+      }
+    } else {
+      float ood = 1.0 / ray.direction[i];
+      float t1 = (volumeOrigin[i] - ray.origin[i]) * ood;
+      float t2 = (volumeMax[i] - ray.origin[i]) * ood;
+
+      // Setup near and far intersections for this axis
+      float tNear = min(t1, t2);
+      float tFar = max(t1, t2);
+
+      tMin = max(tMin, tNear);
+      tMax = min(tMax, tFar);
+
+      // Early exit if ray misses the box
+      if (tMin > tMax) {
+        return -1.0;
+      }
+    }
+  }
+
+  // If the box is entirely behind the ray
+  if (tMax < 0.0) {
+    return -1.0;
+  }
+
+  // Returns 0.0 if inside, or the exact entry distance if outside
+  return tMin;
+}
+
 VoxelVolume get_volume() {
   // For this demo, we just have one volume at index 0. You can expand this
   // to support multiple volumes with different origins and sizes!
@@ -75,10 +114,15 @@ void main(uint3 dispatchThreadID: SV_DispatchThreadID) {
 
     float3 size = float3(volume.size_x, volume.size_y, volume.size_z);
     float3 origin = float3(volume.origin_x, volume.origin_y, volume.origin_z);
-    float t = 0.0;
-    float max_dist = 500.0; // How far the camera can see
+    float starting_distance = get_start_distance(
+        ray, origin, size); // How close the ray starts to the camera
+    // finalColor = float4((starting_distance + 1.0) / 500.0f, 0.0, 0.0,
+    //                     1.0); // Reset to black for this volume, so we
+    // break;
+    float t = starting_distance;
+    float max_dist = starting_distance + 500.0; // How far the camera can see
     float step_size =
-        0.1; // Smaller = sharper voxels, larger = faster performance
+        0.01; // Smaller = sharper voxels, larger = faster performance
 
     // if (dispatchThreadID.x == 0 &&
     //     dispatchThreadID.y == 0) // Print volume info for the first thread
@@ -86,7 +130,9 @@ void main(uint3 dispatchThreadID: SV_DispatchThreadID) {
     // printf("voxel array pointer: 0x%p\n", volume.data);
     // printf("first color: %u\n", volume.data[0].color);
     // return;
-    int max_steps = 1000;
+    if (starting_distance < 0.0)
+      continue; // Skip this volume if the ray starts behind it
+    int max_steps = 10000;
     for (int i = 0; i < max_steps && t < max_dist; i++) {
       float3 position = ray.origin + ray.direction * t;
 
@@ -140,6 +186,11 @@ void main(uint3 dispatchThreadID: SV_DispatchThreadID) {
           }
           break;
         }
+      }
+      // if we aren't inside the volume boundary stop marching this volume and
+      // move to the next one (if any)
+      else if (t - starting_distance > 5.0) {
+        break;
       }
       t += step_size;
     }
