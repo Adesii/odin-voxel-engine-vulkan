@@ -10,207 +10,180 @@ public struct HitInfo {
   public float3 position;
   public float4 color;
   public float depth;
+  public int3 voxelCoord;
+  public uint packedColor;
 };
 
-public HitInfo DDATrace(Ray ray, VoxelVolume volume, float lastDepth) {
-  float3 ray_dir = normalize(ray.direction);
-  float3 inv_dir = 1.0 / ray_dir;
-  float3 tDelta = abs(inv_dir);
-  float3 tMin = (volume.origin - ray.origin) * inv_dir;
-  float3 tMax =
-      (volume.origin + float3(volume.size_x, volume.size_y, volume.size_z) -
-       ray.origin) *
-      inv_dir;
-
-  float3 t1 = min(tMin, tMax);
-  float3 t2 = max(tMin, tMax);
-
-  float tNear = max(max(t1.x, t1.y), t1.z);
-  float tFar = min(min(t2.x, t2.y), t2.z);
-
-  if (tNear > tFar || tFar < 0.0) {
-    HitInfo noHit;
-    noHit.color = float4(0, 0, 0, 0);
-    return noHit; // No intersection
-  }
-
-  float t = max(tNear, 0.0);
-  float3 voxel =
-      floor((ray.origin + ray_dir * t - volume.origin) / float3(1.0, 1.0, 1.0));
-
-  float depth = lastDepth;
-  float4 finalColor = float4(0, 0, 0, 0);
-
-  while (t < tFar) {
-    if (voxel.x >= 0 && voxel.x < volume.size_x && voxel.y >= 0 &&
-        voxel.y < volume.size_y && voxel.z >= 0 && voxel.z < volume.size_z) {
-
-      uint voxelCoordX = uint(voxel.x);
-      uint voxelCoordY = uint(voxel.y);
-      uint voxelCoordZ = uint(voxel.z);
-
-      uint flatIndex = voxelCoordX + (voxelCoordY * volume.size_x) +
-                       (voxelCoordZ * volume.size_x * volume.size_y);
-      uint maxVoxels = volume.size_x * volume.size_y * volume.size_z;
-
-      if (flatIndex < maxVoxels) {
-        uint packed_color = volume.data[flatIndex].color;
-        if (packed_color != 0) {
-          float r = (float)((packed_color >> 24) & 0xFF) / 255.0;
-          float g = (float)((packed_color >> 16) & 0xFF) / 255.0;
-          float b = (float)((packed_color >> 8) & 0xFF) / 255.0;
-
-          float3 hitLocal = voxel;
-          float3 hitWorld = volume.origin + mul(volume.rotation, hitLocal);
-
-          float worldDepth = distance(hitWorld, ray.origin);
-
-          if (worldDepth < depth) {
-            depth = worldDepth;
-            finalColor = float4(float3(r, g, b), 1.0);
-          }
-          break;
-        }
-      } else {
-        // This path can safely break out or be removed now
-        break;
-      }
-    } else {
-      // Ray stepped cleanly out of the voxel grid bounding region
-      break;
-    }
-
-    if (tMax.x < tMax.y) {
-      if (tMax.x < tMax.z) {
-        t += tMax.x;
-        tMax.x += tDelta.x;
-        voxel.x += (ray_dir.x > 0 ? 1 : -1);
-      } else {
-        t += tMax.z;
-        tMax.z += tDelta.z;
-        voxel.z += (ray_dir.z > 0 ? 1 : -1);
-      }
-    } else {
-      if (tMax.y < tMax.z) {
-        t += tMax.y;
-        tMax.y += tDelta.y;
-        voxel.y += (ray_dir.y > 0 ? 1 : -1);
-      } else {
-        t += tMax.z;
-        tMax.z += tDelta.z;
-        voxel.z += (ray_dir.z > 0 ? 1 : -1);
-      }
-    }
-  }
-  HitInfo hitInfo;
-  hitInfo.position = ray.origin + ray_dir * depth;
-  hitInfo.color = finalColor;
-  hitInfo.depth = depth;
-  return hitInfo;
+void reset_hit_info(float maxDistance, out HitInfo hit) {
+  hit.position = float3(0, 0, 0);
+  hit.color = float4(0, 0, 0, 0);
+  hit.depth = maxDistance;
+  hit.voxelCoord = int3(-1, -1, -1);
+  hit.packedColor = 0;
 }
 
-public bool TraceVoxelVolume(Ray ray, VoxelVolume volume, float maxDistance,
-                             out HitInfo hit) {
-  hit.depth = maxDistance;
-  hit.color = float4(0, 0, 0, 0);
-  hit.position = float3(0, 0, 0);
+public bool IntersectRayAABB(Ray ray, float3 boundsMin, float3 boundsMax,
+                             out float tEnter, out float tExit) {
+  tEnter = 0.0;
+  tExit = 1e30;
 
-  float t = 0.0;
+  for (int axis = 0; axis < 3; axis++) {
+    float dir = ray.direction[axis];
+    float origin = ray.origin[axis];
 
-  float3 rayDir = ray.direction;
+    if (abs(dir) < 1e-6) {
+      if (origin < boundsMin[axis] || origin > boundsMax[axis]) {
+        return false;
+      }
+      continue;
+    }
 
+    float invDir = 1.0 / dir;
+    float t1 = (boundsMin[axis] - origin) * invDir;
+    float t2 = (boundsMax[axis] - origin) * invDir;
+
+    float tNear = min(t1, t2);
+    float tFar = max(t1, t2);
+
+    tEnter = max(tEnter, tNear);
+    tExit = min(tExit, tFar);
+
+    if (tEnter > tExit) {
+      return false;
+    }
+  }
+
+  return tExit >= 0.0;
+}
+
+public Ray to_local_ray(Ray worldRay, VoxelVolume volume) {
+  Ray localRay;
+  float3 translatedOrigin = worldRay.origin - volume.origin;
+
+  localRay.origin = float3(dot(volume.invRotation[0], translatedOrigin),
+                           dot(volume.invRotation[1], translatedOrigin),
+                           dot(volume.invRotation[2], translatedOrigin));
+
+  localRay.direction = float3(dot(volume.invRotation[0], worldRay.direction),
+                              dot(volume.invRotation[1], worldRay.direction),
+                              dot(volume.invRotation[2], worldRay.direction));
+
+  return localRay;
+}
+
+public bool TraceVoxelVolumeLocal(Ray localRay, VoxelVolume volume,
+                                  float maxDistance, out HitInfo hit) {
+  reset_hit_info(maxDistance, hit);
+
+  float3 volumeSize = float3(volume.size_x, volume.size_y, volume.size_z);
+  float tEnter, tExit;
+  if (!IntersectRayAABB(localRay, float3(0, 0, 0), volumeSize, tEnter, tExit)) {
+    return false;
+  }
+
+  float tLimit = min(tExit, maxDistance);
+  float t = max(tEnter, 0.0);
+  float3 rayDir = localRay.direction;
   float3 invDir = 1.0 / rayDir;
   float3 tDelta = abs(invDir);
 
-  // Starting position in world space
-  float3 pos = ray.origin + rayDir * t;
+  float3 startPos = localRay.origin + rayDir * t;
+  int3 voxel = int3(floor(startPos + (rayDir * 0.0001)));
+  int3 step = int3(rayDir.x > 0 ? 1 : (rayDir.x < 0 ? -1 : 0),
+                   rayDir.y > 0 ? 1 : (rayDir.y < 0 ? -1 : 0),
+                   rayDir.z > 0 ? 1 : (rayDir.z < 0 ? -1 : 0));
 
-  // Transform into voxel-local space (if needed)
-  float3 localPos = mul(volume.invRotation, (pos - volume.origin));
+  float3 nextBoundary = float3(float(voxel.x + (step.x > 0 ? 1 : 0)),
+                               float(voxel.y + (step.y > 0 ? 1 : 0)),
+                               float(voxel.z + (step.z > 0 ? 1 : 0)));
 
-  int3 voxel = int3(floor(localPos));
-
-  // Initial tMax setup
   float3 tMax;
-
   tMax.x =
-      (rayDir.x != 0)
-          ? ((float(voxel.x + (rayDir.x > 0 ? 1 : 0)) - localPos.x) * invDir.x)
-          : 1e30;
-
+      (step.x != 0) ? (nextBoundary.x - localRay.origin.x) * invDir.x : 1e30;
   tMax.y =
-      (rayDir.y != 0)
-          ? ((float(voxel.y + (rayDir.y > 0 ? 1 : 0)) - localPos.y) * invDir.y)
-          : 1e30;
-
+      (step.y != 0) ? (nextBoundary.y - localRay.origin.y) * invDir.y : 1e30;
   tMax.z =
-      (rayDir.z != 0)
-          ? ((float(voxel.z + (rayDir.z > 0 ? 1 : 0)) - localPos.z) * invDir.z)
-          : 1e30;
+      (step.z != 0) ? (nextBoundary.z - localRay.origin.z) * invDir.z : 1e30;
 
-  // DDA loop
-  for (int i = 0; i < 100000; i++) {
-    // Bounds check
+  uint maxVoxels = volume.size_x * volume.size_y * volume.size_z;
+
+  for (int i = 0; i < 100000 && t <= tLimit; i++) {
     if (voxel.x < 0 || voxel.y < 0 || voxel.z < 0 ||
         voxel.x >= (int)volume.size_x || voxel.y >= (int)volume.size_y ||
         voxel.z >= (int)volume.size_z) {
-      return false;
+      break;
     }
 
-    uint flatIndex = voxel.x + voxel.y * volume.size_x +
-                     voxel.z * volume.size_x * volume.size_y;
+    uint3 voxelCoord = uint3(voxel);
+    uint flatIndex = voxelCoord.x + (voxelCoord.y * volume.size_x) +
+                     (voxelCoord.z * volume.size_x * volume.size_y);
 
-    uint maxVoxels = volume.size_x * volume.size_y * volume.size_z;
-
-    if (flatIndex >= maxVoxels)
-      return false;
+    if (flatIndex >= maxVoxels) {
+      break;
+    }
 
     uint packed = volume.data[flatIndex].color;
-
-    // HIT
     if (packed != 0) {
-      float r = ((packed >> 24) & 0xFF) / 255.0;
-      float g = ((packed >> 16) & 0xFF) / 255.0;
-      float b = ((packed >> 8) & 0xFF) / 255.0;
+      hit.position = localRay.origin + rayDir * t;
+      hit.depth = t;
+      hit.voxelCoord = voxel;
+      hit.packedColor = packed;
 
-      float3 hitLocal = float3(voxel);
-      float3 hitWorld = volume.origin + mul(volume.rotation, hitLocal);
-
-      float dist = distance(hitWorld, ray.origin);
-
-      hit.position = hitWorld;
-      hit.depth = dist;
+      float r = (float)((packed >> 24) & 0xFF) / 255.0;
+      float g = (float)((packed >> 16) & 0xFF) / 255.0;
+      float b = (float)((packed >> 8) & 0xFF) / 255.0;
       hit.color = float4(r, g, b, 1.0);
-
       return true;
     }
 
-    // Step DDA
     if (tMax.x < tMax.y) {
       if (tMax.x < tMax.z) {
-        t += tMax.x;
+        t = tMax.x;
         tMax.x += tDelta.x;
-        voxel.x += (rayDir.x > 0 ? 1 : -1);
+        voxel.x += step.x;
       } else {
-        t += tMax.z;
+        t = tMax.z;
         tMax.z += tDelta.z;
-        voxel.z += (rayDir.z > 0 ? 1 : -1);
+        voxel.z += step.z;
       }
     } else {
       if (tMax.y < tMax.z) {
-        t += tMax.y;
+        t = tMax.y;
         tMax.y += tDelta.y;
-        voxel.y += (rayDir.y > 0 ? 1 : -1);
+        voxel.y += step.y;
       } else {
-        t += tMax.z;
+        t = tMax.z;
         tMax.z += tDelta.z;
-        voxel.z += (rayDir.z > 0 ? 1 : -1);
+        voxel.z += step.z;
       }
     }
-
-    if (t > maxDistance)
-      break;
   }
 
   return false;
+}
+
+public bool TraceVoxelVolume(Ray worldRay, VoxelVolume volume,
+                             float maxDistance, out HitInfo hit) {
+  Ray localRay = to_local_ray(worldRay, volume);
+  HitInfo localHit;
+
+  if (!TraceVoxelVolumeLocal(localRay, volume, maxDistance, localHit)) {
+    reset_hit_info(maxDistance, hit);
+    return false;
+  }
+
+  hit = localHit;
+  hit.position = volume.origin + mul(volume.rotation, localHit.position);
+  hit.depth = distance(hit.position, worldRay.origin);
+  return true;
+}
+
+public HitInfo DDATrace(Ray ray, VoxelVolume volume, float lastDepth) {
+  HitInfo hit;
+  if (TraceVoxelVolume(ray, volume, lastDepth, hit)) {
+    return hit;
+  }
+
+  reset_hit_info(lastDepth, hit);
+  return hit;
 }
