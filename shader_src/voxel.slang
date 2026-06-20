@@ -47,6 +47,10 @@ void main(uint3 dispatchThreadID: SV_DispatchThreadID) {
   float4 finalColor = float4(0.2, 0.4, 0.6, 1.0); // Default sky bluebackground
 
   float depth = 1e9; // Start with a very large depth value
+  bool hasPrimaryHit = false;
+  float3 primaryColor = float3(0, 0, 0);
+  float3 primaryHitWorld = float3(0, 0, 0);
+
   for (int i = 0; i < g_volume.getCount(); i++) {
     VoxelVolume volume = g_volume[i];
 
@@ -64,14 +68,34 @@ void main(uint3 dispatchThreadID: SV_DispatchThreadID) {
     if (TraceVoxelVolumeLocal(localRay, volume, depth, hit)) {
       float3 hitWorld = volume.origin + mul(volume.rotation, hit.position);
       float worldDepth = distance(hitWorld, ray.origin);
-      float depth_shadow = 1.0 / (1.0 + (worldDepth * 0.002));
 
       if (worldDepth < depth) {
         depth = worldDepth;
-        // Do secondary raycast for shadows here
-        finalColor = float4(hit.color.rgb * depth_shadow, 1.0);
+        hasPrimaryHit = true;
+        primaryColor = hit.color.rgb;
+        primaryHitWorld = hitWorld;
       }
     }
   }
+
+  if (hasPrimaryHit) {
+    Ray shadowRay;
+    shadowRay.origin = primaryHitWorld + float3(0, 1, 0) * 0.01;
+    shadowRay.direction = float3(0.5, 1, 0.5);
+
+    bool inShadow = false;
+    for (int i = 0; i < g_volume.getCount(); i++) {
+      HitInfo shadowHit;
+      if (TraceVoxelVolume(shadowRay, g_volume[i], 100000.0, shadowHit)) {
+        inShadow = true;
+        break;
+      }
+    }
+
+    float depth_shadow = 1.0 / (1.0 + (depth * 0.002));
+    float shadowFactor = inShadow ? 0.35 : 1.0;
+    finalColor = float4(primaryColor * depth_shadow * shadowFactor, 1.0);
+  }
+
   g_outputFramebuffer[pixelCoord] = finalColor;
 }
