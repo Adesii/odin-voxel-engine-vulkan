@@ -254,6 +254,14 @@ get_odin_type :: proc(type_obj: json.Object, known_structs: []struct_definition)
 		rows := json_get_int(type_obj, "rowCount")
 		cols := json_get_int(type_obj, "columnCount")
 		if elem, exists := json_get_object(type_obj, "elementType"); exists {
+			if (cols % 4 != 0) {
+				return fmt.tprintf(
+					"[%d][%d]%s",
+					rows,
+					cols + 1,
+					get_odin_type(elem, known_structs),
+				)
+			}
 			return fmt.tprintf("matrix[%d,%d]%s", rows, cols, get_odin_type(elem, known_structs))
 		}
 	case "struct":

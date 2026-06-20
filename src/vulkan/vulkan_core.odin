@@ -215,6 +215,11 @@ create_buffer :: proc(
 	usage: vk.BufferUsageFlags,
 	properties: vk.MemoryPropertyFlags,
 ) -> vulkan_buffer {
+	size := size
+	if (size <= 0) {
+		fmt.printfln("Attempted to create Vulkan buffer with non-positive size: %d", size)
+		size = 16 // Default to a small size to avoid creating an invalid buffer
+	}
 	buffer_info := vk.BufferCreateInfo {
 		sType       = .BUFFER_CREATE_INFO,
 		size        = vk.DeviceSize(size),
@@ -238,10 +243,10 @@ create_buffer :: proc(
 	b: vulkan_buffer
 	b.allocation = vma.Allocation{}
 	b.buffer = vk.Buffer{}
-	fmt.println("Creating buffer of size %d", size)
-	fmt.println("Buffer usage: %v", usage)
-	fmt.println("Memory properties: %v", properties)
-	fmt.printfln("vma allocator: %p", r.allocator_vma)
+	// fmt.println("Creating buffer of size %d", size)
+	// fmt.println("Buffer usage: %v", usage)
+	// fmt.println("Memory properties: %v", properties)
+	// fmt.printfln("vma allocator: %p", r.allocator_vma)
 	VK_CHECK(
 		vma.CreateBuffer(
 			r.allocator_vma,

@@ -59,28 +59,16 @@
                     "name": "VoxelVolume",
                     "fields": [
                         {
-                            "name": "origin_x",
+                            "name": "origin",
                             "type": {
-                                "kind": "scalar",
-                                "scalarType": "uint32"
+                                "kind": "vector",
+                                "elementCount": 3,
+                                "elementType": {
+                                    "kind": "scalar",
+                                    "scalarType": "float32"
+                                }
                             },
-                            "binding": {"kind": "uniform", "offset": 0, "size": 4, "elementStride": 0}
-                        },
-                        {
-                            "name": "origin_y",
-                            "type": {
-                                "kind": "scalar",
-                                "scalarType": "uint32"
-                            },
-                            "binding": {"kind": "uniform", "offset": 4, "size": 4, "elementStride": 0}
-                        },
-                        {
-                            "name": "origin_z",
-                            "type": {
-                                "kind": "scalar",
-                                "scalarType": "uint32"
-                            },
-                            "binding": {"kind": "uniform", "offset": 8, "size": 4, "elementStride": 0}
+                            "binding": {"kind": "uniform", "offset": 0, "size": 12, "elementStride": 4}
                         },
                         {
                             "name": "size_x",
@@ -107,12 +95,38 @@
                             "binding": {"kind": "uniform", "offset": 20, "size": 4, "elementStride": 0}
                         },
                         {
+                            "name": "invRotation",
+                            "type": {
+                                "kind": "matrix",
+                                "rowCount": 3,
+                                "columnCount": 3,
+                                "elementType": {
+                                    "kind": "scalar",
+                                    "scalarType": "float32"
+                                }
+                            },
+                            "binding": {"kind": "uniform", "offset": 32, "size": 48, "elementStride": 0}
+                        },
+                        {
+                            "name": "rotation",
+                            "type": {
+                                "kind": "matrix",
+                                "rowCount": 3,
+                                "columnCount": 3,
+                                "elementType": {
+                                    "kind": "scalar",
+                                    "scalarType": "float32"
+                                }
+                            },
+                            "binding": {"kind": "uniform", "offset": 80, "size": 48, "elementStride": 0}
+                        },
+                        {
                             "name": "data",
                             "type": {
                                 "kind": "pointer",
                                 "valueType": "Voxel"
                             },
-                            "binding": {"kind": "uniform", "offset": 24, "size": 8, "elementStride": 0}
+                            "binding": {"kind": "uniform", "offset": 128, "size": 8, "elementStride": 0}
                         }
                     ]
                 }

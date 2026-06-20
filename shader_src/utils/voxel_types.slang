@@ -6,11 +6,11 @@ struct Voxel {
 
 // This represents your dense, flat array
 struct VoxelVolume {
-  uint origin_x;
-  uint origin_y;
-  uint origin_z;
+  float3 origin; // Changed to float3 to support fractional world positions
   uint size_x;
   uint size_y;
   uint size_z;
-  Voxel *data; // Flat 1D array inside the struct!
+  float3x3 invRotation; // Inverse (Transpose) of your Odin 3x3 rotation matrix
+  float3x3 rotation;    // Original rotation matrix
+  Voxel *data;
 };

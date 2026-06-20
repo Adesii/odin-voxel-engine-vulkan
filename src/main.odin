@@ -109,10 +109,10 @@ run_game :: proc() {
 	last_time: f64
 	last_fps: f64 = 0
 
-	state.camera.position = {32, 32, 50}
+	state.camera.position = {-32, 32, 50}
 
 	held_keys_map = make(map[sdl.Keycode]bool)
-	rotate_camera(0, 0) // Initialize camera rotation matrices
+	rotate_camera(-360, 0) // Initialize camera rotation matrices
 
 	main_loop: for {
 		last = now
@@ -209,29 +209,33 @@ run_game :: proc() {
 
 
 rotate_camera :: proc(xrel: f32, yrel: f32) {
-	sensitivity: f32 = 0.01
-	// Yaw is applied around world up, pitch around the yawed camera right axis.
+	sensitivity: f32 = 0.002 // Slightly lowered default for smoother mouse tracking
+
 	state.camera.rotation_thing.x -= xrel * sensitivity
 	state.camera.rotation_thing.y -= yrel * sensitivity
-	//clamp the vertical rotation to avoid flipping
-	if state.camera.rotation_thing.y > math.PI / 2 {
-		state.camera.rotation_thing.y = math.PI / 2
-	} else if state.camera.rotation_thing.y < -math.PI / 2 {
-		state.camera.rotation_thing.y = -math.PI / 2
+
+	// Clamp the vertical pitch to avoid full inversion loops
+	if state.camera.rotation_thing.y > math.PI / 2.01 {
+		state.camera.rotation_thing.y = math.PI / 2.01
+	} else if state.camera.rotation_thing.y < -math.PI / 2.01 {
+		state.camera.rotation_thing.y = -math.PI / 2.01
 	}
 
 	yaw_rotation := lina.quaternion_angle_axis(state.camera.rotation_thing.x, [3]f32{0, 1, 0})
-	pitch_axis := lina.quaternion128_mul_vector3(yaw_rotation, [3]f32{1, 0, 0})
+
+	pitch_axis := lina.quaternion128_mul_vector3(yaw_rotation, [3]f32{0, 0, 1})
 	pitch_rotation := lina.quaternion_angle_axis(state.camera.rotation_thing.y, pitch_axis)
+
+	// 3. Combine rotations
 	state.camera.rotation = pitch_rotation * yaw_rotation
 }
 
 camera_forward :: proc(rotation: quaternion128) -> [3]f32 {
-	return lina.quaternion128_mul_vector3(rotation, [3]f32{0, 0, -1})
+	return lina.quaternion128_mul_vector3(rotation, [3]f32{1, 0, 0})
 }
 
 camera_right :: proc(rotation: quaternion128) -> [3]f32 {
-	return lina.quaternion128_mul_vector3(rotation, [3]f32{1, 0, 0})
+	return lina.quaternion128_mul_vector3(rotation, [3]f32{0, 0, 1})
 }
 
 camera_up :: proc(rotation: quaternion128) -> [3]f32 {
@@ -275,13 +279,24 @@ update_camera :: proc(dt: f32) {
 	aspect_ratio := f32(vulkan.renderer.extent.width) / f32(vulkan.renderer.extent.height)
 
 	proj := lina.matrix4_perspective(math.to_radians(f32(90.0)), aspect_ratio, 0.1, 10000)
+
 	rot_m4 := lina.matrix4_from_quaternion(lina.quaternion_inverse(state.camera.rotation))
 	trans_m4 := lina.matrix4_translate(-state.camera.position)
-	view := rot_m4 * trans_m4
+	standard_view := rot_m4 * trans_m4
+
+	// CORRECTED CONVERSION BASIS:
+	// Maps standard view properties directly to your custom Left-Handed system layout
+	axis_remap := matrix[4, 4]f32{
+		0, 0, 1, 0,
+		0, 1, 0, 0,
+		-1, 0, 0, 0,
+		0, 0, 0, 1,
+	} // Your X Forward maps directly onto the view's depth vector// Your Y Up// Your Z Right
+
+	view := axis_remap * standard_view
 
 	state.camera.view_proj = proj * view
 	state.camera.inv_view_proj = lina.matrix4_inverse(state.camera.view_proj)
-
 }
 
 finish :: proc() {

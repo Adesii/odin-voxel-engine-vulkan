@@ -2,12 +2,13 @@ package main
 
 import vma "../vendor/odin-vma"
 import "core:fmt"
+import "core:math/linalg"
 import "core:mem"
 import v "shaders/voxel_shader"
 import vk "vendor:vulkan"
 import "vulkan"
 
-MAX_VOLUMES :: 256
+MAX_VOLUMES :: 2048
 
 Voxel_Buffer_Context :: struct {
 	uniform_buffer:          [vulkan.MAX_FRAMES_IN_FLIGHT]vulkan.vulkan_buffer,
@@ -135,13 +136,28 @@ vulkan_init_voxel_buffers :: proc(r: ^vulkan.vulkan_renderer) {
 	// vulkan_upload_test_voxels(r, volume1)
 	// vulkan_upload_test_voxels(r, volume2)
 
-	add_new_volume(r, ctx, [3]u32{0, 0, 0}, [3]u32{64, 64, 64})
-	add_new_volume(r, ctx, [3]u32{16, 0, 0}, [3]u32{64, 64, 64})
-	add_new_volume(r, ctx, [3]u32{0, 96, 5}, [3]u32{64, 64, 64})
-
-	add_new_volume(r, ctx, [3]u32{32, 32, 0}, [3]u32{64, 64, 64})
-	add_new_volume(r, ctx, [3]u32{16, 96, 0}, [3]u32{64, 64, 64})
+	// add_new_volume(r, ctx, [3]u32{0, 0, 0}, [3]u32{64, 64, 64})
+	// add_new_volume(r, ctx, [3]u32{16, 0, 0}, [3]u32{64, 64, 64})
+	// add_new_volume(r, ctx, [3]u32{0, 96, 5}, [3]u32{64, 64, 64})
+	//
+	// add_new_volume(r, ctx, [3]u32{32, 32, 0}, [3]u32{64, 64, 64})
+	// add_new_volume(r, ctx, [3]u32{16, 96, 0}, [3]u32{64, 64, 64})
 	// add_new_volume(r, ctx, [3]u32{128, 96, 0}, [3]u32{512, 512, 512})
+	// test_vox_file_model := voxel_from_vox_file(r, "assets/models/vox/character/chr_cat.vox")
+	// test_vox_file_model := voxel_from_vox_file(r, "assets/models/custom.vox")
+	test_vox_file_model := voxel_from_vox_file(r, "assets/models/castle.vox")
+	for volume in test_vox_file_model {
+		append(&ctx.volumes, volume)
+	}
+	test_vox_file_model2 := voxel_from_vox_file(r, "assets/models/vox/character/chr_cat.vox")
+	for volume in test_vox_file_model2 {
+		append(&ctx.volumes, volume)
+	}
+
+	// test_vox_file_model3 := voxel_from_vox_file(r, "assets/models/custom.vox")
+	// for volume in test_vox_file_model3 {
+	// 	append(&ctx.volumes, volume)
+	// }
 	amount := int(size_of(v.VoxelVolume) * u32(len(ctx.volumes)))
 
 	for i := 0; i < vulkan.MAX_FRAMES_IN_FLIGHT; i += 1 {
@@ -160,7 +176,7 @@ vulkan_init_voxel_buffers :: proc(r: ^vulkan.vulkan_renderer) {
 add_new_volume :: proc(
 	r: ^vulkan.vulkan_renderer,
 	ctx: ^Voxel_Buffer_Context,
-	origin: [3]u32,
+	origin: [3]f32,
 	size: [3]u32,
 ) {
 	new_volume := voxel_create_new_volume(r, origin, size)
@@ -262,15 +278,26 @@ vulkan_update_voxel_uniforms :: proc(
 			"CRITICAL: The target buffer handle itself is uninitialized (0)!",
 		)
 		gpu_ptr := vulkan.get_gpu_address(r.device, src_volume.voxel_buffer.buffer)
+		rot := src_volume.rotation
+		inverse_rotation := linalg.inverse(rot)
 
 		packed_volumes[idx] = v.VoxelVolume {
-			origin_x = src_volume.origin.x,
-			origin_y = src_volume.origin.y,
-			origin_z = src_volume.origin.z,
-			size_x   = src_volume.size.x,
-			size_y   = src_volume.size.y,
-			size_z   = src_volume.size.z,
-			data     = u64(gpu_ptr),
+			origin      = src_volume.origin,
+			size_x      = src_volume.size.x,
+			size_y      = src_volume.size.y,
+			size_z      = src_volume.size.z,
+			// _pad_32     = 0,
+			invRotation = [3][4]f32 {
+				{inverse_rotation[0, 0], inverse_rotation[0, 1], inverse_rotation[0, 2], 0.0},
+				{inverse_rotation[1, 0], inverse_rotation[1, 1], inverse_rotation[1, 2], 0.0},
+				{inverse_rotation[2, 0], inverse_rotation[2, 1], inverse_rotation[2, 2], 0.0},
+			},
+			rotation    = [3][4]f32 {
+				{rot[0, 0], rot[0, 1], rot[0, 2], 0.0},
+				{rot[1, 0], rot[1, 1], rot[1, 2], 0.0},
+				{rot[2, 0], rot[2, 1], rot[2, 2], 0.0},
+			},
+			data        = u64(gpu_ptr),
 		}
 	}
 

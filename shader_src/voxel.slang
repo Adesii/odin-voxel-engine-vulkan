@@ -11,15 +11,13 @@ uniform RWTexture2D<float4> g_outputFramebuffer;
 
 Ray generate_camera_ray(uint2 pixelCoord, float2 screenSize) {
   float2 ndc = ((float2(pixelCoord) + 0.5) / screenSize) * 2.0 - 1.0;
-  ndc.y = -ndc.y; // Match Vulkan Y axis configuration
+  ndc.y = -ndc.y; // Standard Vulkan/Graphics Y orientation
 
-  // Un-project a clip space coordinate on the near plane.
+  // Standard near plane depth format
   float4 clipTarget = float4(ndc.x, ndc.y, -1.0, 1.0);
 
-  // Multiply target by your layout-aligned inverse view-proj matrix
   float4 worldTarget = mul(g_camera.invViewProj, clipTarget);
-  worldTarget /=
-      worldTarget.w; // Perspective divide to translate to 3D world space
+  worldTarget /= worldTarget.w; // Classic perspective division step
 
   Ray ray;
   ray.origin = g_camera.position;
@@ -28,49 +26,35 @@ Ray generate_camera_ray(uint2 pixelCoord, float2 screenSize) {
   return ray;
 }
 
-float get_start_distance(Ray ray, float3 volumeOrigin, float3 volumeSize) {
-  float tMin = 0.0; // Do not start behind the camera
-  float tMax = 1e9; // Upper bound for intersection
-  float3 volumeMax = volumeOrigin + volumeSize;
+float get_start_distance(Ray localRay, float3 volumeSize) {
+  float tMin = 0.0;
+  float tMax = 1e9;
+  float3 volumeOrigin = float3(0, 0, 0); // Ray is already localized
 
   for (int i = 0; i < 3; i++) {
-    if (abs(ray.direction[i]) < 1e-6) {
-      // Ray is parallel to slab. Miss if origin is outside.
-      if (ray.origin[i] < volumeOrigin[i] || ray.origin[i] > volumeMax[i]) {
+    if (abs(localRay.direction[i]) < 1e-6) {
+      if (localRay.origin[i] <= 0.0 || localRay.origin[i] >= volumeSize[i]) {
         return -1.0;
       }
     } else {
-      float ood = 1.0 / ray.direction[i];
-      float t1 = (volumeOrigin[i] - ray.origin[i]) * ood;
-      float t2 = (volumeMax[i] - ray.origin[i]) * ood;
+      float ood = 1.0 / localRay.direction[i];
+      float t1 = (0.0 - localRay.origin[i]) * ood;
+      float t2 = (volumeSize[i] - localRay.origin[i]) * ood;
 
-      // Setup near and far intersections for this axis
       float tNear = min(t1, t2);
       float tFar = max(t1, t2);
 
       tMin = max(tMin, tNear);
       tMax = min(tMax, tFar);
 
-      // Early exit if ray misses the box
-      if (tMin > tMax) {
+      if (tMin > tMax)
         return -1.0;
-      }
     }
   }
 
-  // If the box is entirely behind the ray
-  if (tMax < 0.0) {
+  if (tMax < 0.0)
     return -1.0;
-  }
-
-  // Returns 0.0 if inside, or the exact entry distance if outside
   return tMin;
-}
-
-VoxelVolume get_volume() {
-  // For this demo, we just have one volume at index 0. You can expand this
-  // to support multiple volumes with different origins and sizes!
-  return g_volume[0];
 }
 
 [shader("compute")]
@@ -91,40 +75,46 @@ void main(uint3 dispatchThreadID: SV_DispatchThreadID) {
 
   // 1. Generate the ray
   Ray ray = generate_camera_ray(pixelCoord, screenSize);
-
-  // Output the ray direction directly as RGB colors!
-  // g_outputFramebuffer[pixelCoord] = float4(abs(ray.direction), 1.0);
-  // return; // Short-circuit the rest of the raymarcher loop
-  // 2. Raymarching parameters
-  // VoxelVolume volume = get_volume();
-  // if (dispatchThreadID.x == 0 &&
-  //     dispatchThreadID.y == 0) // Print volume info for the first thread only
-  // printf("Volume info: origin=(%u, %u, %u), size=(%u, %u, %u)\n",
-  //        volume.origin_x, volume.origin_y, volume.origin_z, volume.size_x,
-  //        volume.size_y, volume.size_z);
-  // printf("camera info: position=(%f, %f, %f), matrix=(%f, %f, %f, %f)\n",
-  //        g_camera.position.x, g_camera.position.y, g_camera.position.z,
-  //        g_camera.invViewProj._11, g_camera.invViewProj._12,
-  //        g_camera.invViewProj._13, g_camera.invViewProj._14);
-  // return;
   float4 finalColor = float4(0.2, 0.4, 0.6, 1.0); // Default sky bluebackground
+
   float depth = 1e9; // Start with a very large depth value
   for (int i = 0; i < g_volume.getCount(); i++) {
     VoxelVolume volume = g_volume[i];
 
     float3 size = float3(volume.size_x, volume.size_y, volume.size_z);
-    float3 origin = float3(volume.origin_x, volume.origin_y, volume.origin_z);
-    float starting_distance = get_start_distance(ray, origin, size);
-    if (starting_distance < 0.0)
+
+    Ray localRay;
+    localRay.direction.x = dot(volume.invRotation[0], ray.direction);
+    localRay.direction.y = dot(volume.invRotation[1], ray.direction);
+    localRay.direction.z = dot(volume.invRotation[2], ray.direction);
+    // localRay.direction = (localRay.direction);
+
+    float3 translatedOrigin = ray.origin - volume.origin;
+    localRay.origin.x = dot(volume.invRotation[0], translatedOrigin);
+    localRay.origin.y = dot(volume.invRotation[1], translatedOrigin);
+    localRay.origin.z = dot(volume.invRotation[2], translatedOrigin);
+
+    // 2. Perform intersection test using the local space ray definitions
+    float starting_distance = get_start_distance(localRay, size);
+    if (starting_distance < -0.5)
       continue;
 
+    // HitInfo hit = DDATrace(localRay, volume, depth);
+    // if (hit.color.a > 0.0) {
+    //   float worldDepth = distance(hit.position, ray.origin);
+    //   if (worldDepth < depth) {
+    //     depth = worldDepth;
+    //     finalColor = hit.color;
+    //   }
+    // }
+
     float t = starting_distance;
-    float max_dist = t + 500000.0;
-    float3 ray_dir = ray.direction;
+    // float max_dist = t + 500000.0;
+    float3 ray_dir = localRay.direction; // Use local ray details now!
     float3 inv_dir = 1.0 / ray_dir;
     float3 tDelta = abs(inv_dir);
 
-    float3 start_pos = ray.origin + t * ray_dir - origin;
+    float3 start_pos = localRay.origin + t * ray_dir;
     int3 voxel = int3(floor(start_pos + (ray_dir * 0.0001)));
 
     float3 tMax;
@@ -141,10 +131,13 @@ void main(uint3 dispatchThreadID: SV_DispatchThreadID) {
                        inv_dir.z
                  : 1e30;
 
-    for (int i = 0; i < 1000000 && t < max_dist; i++) {
+    // Run your DDA loop...
+    for (int j = 0; j < 100000; j++) {
       if (voxel.x >= 0 && voxel.x < (int)size.x && voxel.y >= 0 &&
           voxel.y < (int)size.y && voxel.z >= 0 && voxel.z < (int)size.z) {
+
         uint3 voxelCoord = uint3(voxel);
+
         uint flatIndex = voxelCoord.x + (voxelCoord.y * volume.size_x) +
                          (voxelCoord.z * volume.size_x * volume.size_y);
         uint maxVoxels = volume.size_x * volume.size_y * volume.size_z;
@@ -155,20 +148,25 @@ void main(uint3 dispatchThreadID: SV_DispatchThreadID) {
             float r = (float)((packed_color >> 24) & 0xFF) / 255.0;
             float g = (float)((packed_color >> 16) & 0xFF) / 255.0;
             float b = (float)((packed_color >> 8) & 0xFF) / 255.0;
-            float3 global_voxel_pos = origin + float3(voxel);
-            float distance_to_voxel = length(global_voxel_pos - ray.origin);
-            float depth_shadow = 1.0 / (1.0 + (distance_to_voxel * 0.0005));
-            if (depth > distance_to_voxel) {
-              depth = distance_to_voxel;
+
+            float3 hitLocal = voxel;
+            float3 hitWorld = volume.origin + mul(volume.rotation, hitLocal);
+
+            float worldDepth = distance(hitWorld, ray.origin);
+            float depth_shadow = 1.0 / (1.0 + (worldDepth * 0.005));
+
+            if (worldDepth < depth) {
+              depth = worldDepth;
               finalColor = float4(float3(r, g, b) * depth_shadow, 1.0);
             }
             break;
           }
         } else {
-          finalColor = float4(1.0, 0.0, 1.0, 1.0);
+          // This path can safely break out or be removed now
           break;
         }
       } else {
+        // Ray stepped cleanly out of the voxel grid bounding region
         break;
       }
 
@@ -195,11 +193,5 @@ void main(uint3 dispatchThreadID: SV_DispatchThreadID) {
       }
     }
   }
-  // if (dispatchThreadID.x == 0 &&
-  //     dispatchThreadID.y == 0) // Print volume info for the first thread only
-  //   printf("Final color: (%f, %f, %f)\n", finalColor.r, finalColor.g,
-  //          finalColor.b);
-
-  // 3. Output the pixel straight to the screen image container
   g_outputFramebuffer[pixelCoord] = finalColor;
 }

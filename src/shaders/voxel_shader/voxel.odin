@@ -8,13 +8,14 @@ CameraUniforms :: struct #align(16) {
 }
 
 VoxelVolume :: struct #align(16) {
-	origin_x: u32, // offset: 0, size: 4
-	origin_y: u32, // offset: 4, size: 4
-	origin_z: u32, // offset: 8, size: 4
+	origin: [3]f32, // offset: 0, size: 12
 	size_x: u32, // offset: 12, size: 4
 	size_y: u32, // offset: 16, size: 4
 	size_z: u32, // offset: 20, size: 4
-	data: u64, // offset: 24, size: 8
+	_pad_32: [8]u8,
+	invRotation: [3][4]f32, // offset: 32, size: 48
+	rotation: [3][4]f32, // offset: 80, size: 48
+	data: u64, // offset: 128, size: 8
 }
 
 // --- VOXEL Pipeline Constants ---
