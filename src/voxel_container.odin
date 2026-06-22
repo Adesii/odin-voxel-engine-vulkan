@@ -98,7 +98,7 @@ voxel_create_new_volume :: proc(
 	r: ^vulkan.vulkan_renderer,
 	origin: [3]f32,
 	size: [3]u32,
-	rotation: matrix[3, 3]f32 = linalg.Matrix3x3f32{},
+	rotation := linalg.Matrix3x3f32{1, 0, 0, 0, 1, 0, 0, 0, 1},
 ) -> VoxelVolumeCPU {
 	volume := VoxelVolumeCPU {
 		origin   = origin,

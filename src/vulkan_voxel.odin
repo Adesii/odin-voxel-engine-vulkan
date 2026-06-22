@@ -1,14 +1,16 @@
 package main
 
+import fn "../vendor/odin-fastnoise2"
 import vma "../vendor/odin-vma"
 import "core:fmt"
 import "core:math/linalg"
+import "core:math/rand"
 import "core:mem"
 import v "shaders/voxel_shader"
 import vk "vendor:vulkan"
 import "vulkan"
 
-MAX_VOLUMES :: 2048
+MAX_VOLUMES :: 8096
 
 Voxel_Buffer_Context :: struct {
 	uniform_buffer:          [vulkan.MAX_FRAMES_IN_FLIGHT]vulkan.vulkan_buffer,
@@ -145,10 +147,83 @@ vulkan_init_voxel_buffers :: proc(r: ^vulkan.vulkan_renderer) {
 	// add_new_volume(r, ctx, [3]u32{128, 96, 0}, [3]u32{512, 512, 512})
 	// test_vox_file_model := voxel_from_vox_file(r, "assets/models/vox/character/chr_cat.vox")
 	// test_vox_file_model := voxel_from_vox_file(r, "assets/models/custom.vox")
-	test_vox_file_model := voxel_from_vox_file(r, "assets/models/castle.vox")
-	for volume in test_vox_file_model {
-		append(&ctx.volumes, volume)
+
+	//Create a nodetree from a encoded string
+	node := fn.NewFromEncodedNodeTree("DQkdCRAJBgwDzcxMPwtmZpZABAMK1yM+Cw@AEAE")
+	defer fn.DeleteNodeRef(node)
+
+	fmt.printfln("node pointer: %v", node)
+
+	array_size: i32 = 64
+	example_array := make([]f32, array_size * array_size * array_size, context.allocator)
+
+	// You can also use the min max as optional parameter like this:
+	outputminmax := [2]f32{0.0, 1.0}
+	fn.GenUniformGrid(
+		node,
+		example_array,
+		[3]f32{0.0, 0.0, 0.0},
+		[3]i32{array_size, array_size, array_size},
+		[3]f32{8, 8, 8},
+		1337,
+		&outputminmax,
+	)
+
+	fmt.printfln(
+		"Generated noise data with min: %f and max: %f test output: %v",
+		outputminmax[0],
+		outputminmax[1],
+		example_array[0],
+	)
+	//Make a single volume that encompasses the entire noise array for testing
+	// Fill the volume with the generated noise data (using a simple threshold for density)
+	//only fill the middle of the volume
+
+	//Each volume will have a 16x16x16 voxel buffer slice
+	volume_array := [dynamic]VoxelVolumeCPU{}
+	for xc: i32 = 0; xc < array_size / 16; xc += 1 {
+		for yc: i32 = 0; yc < array_size / 16; yc += 1 {
+			for zc: i32 = 0; zc < array_size / 16; zc += 1 {
+				origin := [3]f32{f32(xc * 16), f32(yc * 16), f32(zc * 16)}
+				size := [3]u32{16, 16, 16}
+				volume := voxel_create_new_volume(r, origin, size)
+				//fill the volume with the corresponding slice of the generated noise data
+				for z: u32 = 0; z < size[2]; z += 1 {
+					for y: u32 = 0; y < size[1]; y += 1 {
+						for x: u32 = 0; x < size[0]; x += 1 {
+							// Calculate the index in the flat noise array
+							noise_index :=
+								(u32(xc * 16) + x) +
+								(u32(yc * 16) + y) * u32(array_size) +
+								(u32(zc * 16) + z) * u32(array_size) * u32(array_size)
+							// if i32(noise_index) >= array_size * array_size * array_size {
+							// 	continue // Safety check to prevent out-of-bounds access
+							// }
+							// Get the noise value and convert it to a voxel density (for example, using a threshold)
+							noise_value := example_array[noise_index]
+							if noise_value <= outputminmax.x + 0.4 {
+								continue // Skip empty voxels to save memory and processing
+							}
+							index := z * size[0] * size[1] + y * size[0] + x
+							randn := u8(rand.uint32_range(0, 25))
+							volume.data[index] = Voxel {
+								pack_color([3]u8{255 - randn, 255 - randn, 255 - randn}),
+							}
+						}
+					}
+				}
+				vulkan_upload_test_voxels(r, volume)
+				append(&ctx.volumes, volume)
+				fmt.printfln("Created volume with origin %v and size %v", origin, size)
+			}
+		}
 	}
+
+
+	// test_vox_file_model := voxel_from_vox_file(r, "assets/models/nuke.vox")
+	// for volume in test_vox_file_model {
+	// 	append(&ctx.volumes, volume)
+	// }
 	test_vox_file_model2 := voxel_from_vox_file(r, "assets/models/vox/character/chr_cat.vox")
 	for volume in test_vox_file_model2 {
 		append(&ctx.volumes, volume)
