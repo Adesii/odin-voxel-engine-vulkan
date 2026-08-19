@@ -1,16 +1,16 @@
-package vkapi
+package microui_backend
 
-import vma "../../vendor/odin-vma"
-import compiler "../utils"
+import vma "../../../../vendor/odin-vma"
+import bindings "../../../shaders/ui_shader_shader"
+import shader_assets "../../render/shader_assets"
+import vulkan "../../render/vulkan"
 import mu "vendor:microui"
 import vk "vendor:vulkan"
 
 BUFFER_SIZE :: 16384
-microui_ctx :: struct {
-	texture_image:       vk.Image,
-	texture_allocation:  vma.Allocation,
-	texture_view:        vk.ImageView,
-	sampler:             vk.Sampler,
+
+gpu_context :: struct {
+	texture:             vulkan.Image,
 	descriptor_layout:   vk.DescriptorSetLayout,
 	descriptor_pool:     vk.DescriptorPool,
 	descriptor_set:      vk.DescriptorSet,
@@ -18,11 +18,11 @@ microui_ctx :: struct {
 	pipeline:            vk.Pipeline,
 	render_pass:         vk.RenderPass,
 	framebuffers:        []vk.Framebuffer,
-	vertex_buffer:       vulkan_buffer,
-	tex_buffer:          vulkan_buffer,
-	color_buffer:        vulkan_buffer,
-	index_buffer:        vulkan_buffer,
-	const_buffer:        vulkan_buffer,
+	vertex_buffer:       vulkan.Buffer,
+	tex_buffer:          vulkan.Buffer,
+	color_buffer:        vulkan.Buffer,
+	index_buffer:        vulkan.Buffer,
+	const_buffer:        vulkan.Buffer,
 	shader_module:       vk.ShaderModule,
 	tex_buf:             [BUFFER_SIZE * 8]f32,
 	vert_buf:            [BUFFER_SIZE * 8]f32,
@@ -33,53 +33,61 @@ microui_ctx :: struct {
 	current_command:     vk.CommandBuffer,
 	current_framebuffer: vk.Framebuffer,
 }
-init_ui :: proc(r: ^vulkan_renderer) {
-	ui := &r.ui.ui_ctx
-	ui.vertex_buffer = create_buffer(
+
+gpu_init :: proc(ctx: ^Context, r: ^vulkan.Renderer) {
+	ui := &ctx.gpu
+	ui.vertex_buffer = vulkan.create_buffer(
 		r,
 		size_of(ui.vert_buf),
 		{.VERTEX_BUFFER},
 		{.HOST_VISIBLE, .HOST_COHERENT},
 	)
-	ui.tex_buffer = create_buffer(
+	ui.tex_buffer = vulkan.create_buffer(
 		r,
 		size_of(ui.tex_buf),
 		{.VERTEX_BUFFER},
 		{.HOST_VISIBLE, .HOST_COHERENT},
 	)
-	ui.color_buffer = create_buffer(
+	ui.color_buffer = vulkan.create_buffer(
 		r,
 		size_of(ui.color_buf),
 		{.VERTEX_BUFFER},
 		{.HOST_VISIBLE, .HOST_COHERENT},
 	)
-	ui.index_buffer = create_buffer(
+	ui.index_buffer = vulkan.create_buffer(
 		r,
 		size_of(ui.index_buf),
 		{.INDEX_BUFFER},
 		{.HOST_VISIBLE, .HOST_COHERENT},
 	)
-	ui.const_buffer = create_buffer(
+	ui.const_buffer = vulkan.create_buffer(
 		r,
 		size_of(matrix[4, 4]f32),
 		{.UNIFORM_BUFFER},
 		{.HOST_VISIBLE, .HOST_COHERENT},
 	)
-	create_ui_texture(r)
-	create_ui_descriptors(r)
+	create_texture(ctx, r)
+	create_descriptors(ctx, r)
+	create_swapchain_objects(ctx, r)
+	reload_shader(ctx, r)
 }
 
-create_ui_texture :: proc(r: ^vulkan_renderer) {
-	ui := &r.ui.ui_ctx
-	staging := create_buffer(
+create_texture :: proc(ctx: ^Context, r: ^vulkan.Renderer) {
+	ui := &ctx.gpu
+	staging := vulkan.create_buffer(
 		r,
 		len(mu.default_atlas_alpha),
 		{.TRANSFER_SRC},
 		{.HOST_VISIBLE, .HOST_COHERENT},
 	)
-	defer destroy_buffer(r, &staging)
-	write_buffer(r, &staging, raw_data(mu.default_atlas_alpha[:]), len(mu.default_atlas_alpha))
-	ui.texture_image, ui.texture_allocation = create_image(
+	defer vulkan.destroy_buffer(r, &staging)
+	vulkan.write_buffer(
+		r,
+		&staging,
+		raw_data(mu.default_atlas_alpha[:]),
+		len(mu.default_atlas_alpha),
+	)
+	image, allocation := vulkan.create_image(
 		r,
 		mu.DEFAULT_ATLAS_WIDTH,
 		mu.DEFAULT_ATLAS_HEIGHT,
@@ -87,18 +95,18 @@ create_ui_texture :: proc(r: ^vulkan_renderer) {
 		{.TRANSFER_DST, .SAMPLED},
 		{.DEVICE_LOCAL},
 	)
-	transition_image_layout(r, ui.texture_image, .UNDEFINED, .TRANSFER_DST_OPTIMAL)
-	copy_buffer_to_image(
+	vulkan.transition_image_layout(r, image, .UNDEFINED, .TRANSFER_DST_OPTIMAL)
+	vulkan.copy_buffer_to_image(
 		r,
 		staging.buffer,
-		ui.texture_image,
+		image,
 		mu.DEFAULT_ATLAS_WIDTH,
 		mu.DEFAULT_ATLAS_HEIGHT,
 	)
-	transition_image_layout(r, ui.texture_image, .TRANSFER_DST_OPTIMAL, .SHADER_READ_ONLY_OPTIMAL)
+	vulkan.transition_image_layout(r, image, .TRANSFER_DST_OPTIMAL, .SHADER_READ_ONLY_OPTIMAL)
 	view_info := vk.ImageViewCreateInfo {
 		sType = .IMAGE_VIEW_CREATE_INFO,
-		image = ui.texture_image,
+		image = image,
 		viewType = .D2,
 		format = .R8_UNORM,
 		components = {.IDENTITY, .IDENTITY, .IDENTITY, .IDENTITY},
@@ -110,36 +118,36 @@ create_ui_texture :: proc(r: ^vulkan_renderer) {
 			layerCount = 1,
 		},
 	}
-	VK_CHECK(
-		vk.CreateImageView(r.device, &view_info, nil, &ui.texture_view),
+	image_view: vk.ImageView
+	vulkan.VK_CHECK(
+		vk.CreateImageView(r.device, &view_info, nil, &image_view),
 		"vkCreateImageView(ui)",
 	)
-	samper_info := vk.SamplerCreateInfo {
-		sType         = .SAMPLER_CREATE_INFO,
-		magFilter     = .NEAREST,
-		minFilter     = .NEAREST,
-		mipmapMode    = .NEAREST,
-		addressModeU  = .CLAMP_TO_EDGE,
-		addressModeV  = .CLAMP_TO_EDGE,
-		addressModeW  = .CLAMP_TO_EDGE,
-		maxAnisotropy = 1,
-		maxLod        = 1,
+	ui.texture = vulkan.Image {
+		image      = image,
+		view       = image_view,
+		sampler    = vulkan.create_sampler(r, .NEAREST, .CLAMP_TO_EDGE),
+		allocation = allocation,
 	}
-	VK_CHECK(vk.CreateSampler(r.device, &samper_info, nil, &ui.sampler), "vkCreateSampler(ui)")
 }
 
-create_ui_descriptors :: proc(r: ^vulkan_renderer) {
-	ui := &r.ui.ui_ctx
-	bindings := [3]vk.DescriptorSetLayoutBinding {
-		{binding = 0, descriptorType = .SAMPLER, descriptorCount = 1, stageFlags = {.FRAGMENT}},
+create_descriptors :: proc(ctx: ^Context, r: ^vulkan.Renderer) {
+	ui := &ctx.gpu
+	layout_bindings := [3]vk.DescriptorSetLayoutBinding {
 		{
-			binding = 1,
+			binding = bindings.UI_SHADER_BINDING_SAMP,
+			descriptorType = .SAMPLER,
+			descriptorCount = 1,
+			stageFlags = {.FRAGMENT},
+		},
+		{
+			binding = bindings.UI_SHADER_BINDING_TEXT,
 			descriptorType = .SAMPLED_IMAGE,
 			descriptorCount = 1,
 			stageFlags = {.FRAGMENT},
 		},
 		{
-			binding = 2,
+			binding = bindings.UI_SHADER_BINDING_GLOBALS,
 			descriptorType = .UNIFORM_BUFFER,
 			descriptorCount = 1,
 			stageFlags = {.VERTEX},
@@ -147,10 +155,10 @@ create_ui_descriptors :: proc(r: ^vulkan_renderer) {
 	}
 	layout_info := vk.DescriptorSetLayoutCreateInfo {
 		sType        = .DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-		bindingCount = 3,
-		pBindings    = &bindings[0],
+		bindingCount = len(layout_bindings),
+		pBindings    = &layout_bindings[0],
 	}
-	VK_CHECK(
+	vulkan.VK_CHECK(
 		vk.CreateDescriptorSetLayout(r.device, &layout_info, nil, &ui.descriptor_layout),
 		"vkCreateDescriptorSetLayout(ui)",
 	)
@@ -162,10 +170,10 @@ create_ui_descriptors :: proc(r: ^vulkan_renderer) {
 	pool_info := vk.DescriptorPoolCreateInfo {
 		sType         = .DESCRIPTOR_POOL_CREATE_INFO,
 		maxSets       = 1,
-		poolSizeCount = 3,
+		poolSizeCount = len(pool_sizes),
 		pPoolSizes    = &pool_sizes[0],
 	}
-	VK_CHECK(
+	vulkan.VK_CHECK(
 		vk.CreateDescriptorPool(r.device, &pool_info, nil, &ui.descriptor_pool),
 		"vkCreateDescriptorPool(ui)",
 	)
@@ -175,13 +183,13 @@ create_ui_descriptors :: proc(r: ^vulkan_renderer) {
 		descriptorSetCount = 1,
 		pSetLayouts        = &ui.descriptor_layout,
 	}
-	VK_CHECK(
+	vulkan.VK_CHECK(
 		vk.AllocateDescriptorSets(r.device, &alloc_info, &ui.descriptor_set),
 		"vkAllocateDescriptorSets(ui)",
 	)
 	image_info := vk.DescriptorImageInfo {
-		sampler     = ui.sampler,
-		imageView   = ui.texture_view,
+		sampler     = ui.texture.sampler,
+		imageView   = ui.texture.view,
 		imageLayout = .SHADER_READ_ONLY_OPTIMAL,
 	}
 	allocation_info: vma.AllocationInfo
@@ -195,7 +203,7 @@ create_ui_descriptors :: proc(r: ^vulkan_renderer) {
 		{
 			sType = .WRITE_DESCRIPTOR_SET,
 			dstSet = ui.descriptor_set,
-			dstBinding = 0,
+			dstBinding = bindings.UI_SHADER_BINDING_SAMP,
 			descriptorCount = 1,
 			descriptorType = .SAMPLER,
 			pImageInfo = &image_info,
@@ -203,7 +211,7 @@ create_ui_descriptors :: proc(r: ^vulkan_renderer) {
 		{
 			sType = .WRITE_DESCRIPTOR_SET,
 			dstSet = ui.descriptor_set,
-			dstBinding = 1,
+			dstBinding = bindings.UI_SHADER_BINDING_TEXT,
 			descriptorCount = 1,
 			descriptorType = .SAMPLED_IMAGE,
 			pImageInfo = &image_info,
@@ -211,22 +219,21 @@ create_ui_descriptors :: proc(r: ^vulkan_renderer) {
 		{
 			sType = .WRITE_DESCRIPTOR_SET,
 			dstSet = ui.descriptor_set,
-			dstBinding = 2,
+			dstBinding = bindings.UI_SHADER_BINDING_GLOBALS,
 			descriptorCount = 1,
 			descriptorType = .UNIFORM_BUFFER,
 			pBufferInfo = &buffer_info,
 		},
 	}
-	vk.UpdateDescriptorSets(r.device, 3, &writes[0], 0, nil)
+	vk.UpdateDescriptorSets(r.device, len(writes), &writes[0], 0, nil)
 }
 
-create_ui_swapchain_objects :: proc(r: ^vulkan_renderer) {
-	create_ui_render_pass(r)
-	create_ui_framebuffers(r)
+create_swapchain_objects :: proc(ctx: ^Context, r: ^vulkan.Renderer) {
+	create_render_pass(ctx, r)
+	create_framebuffers(ctx, r)
 }
 
-create_ui_render_pass :: proc(r: ^vulkan_renderer) {
-	ui := &r.ui.ui_ctx
+create_render_pass :: proc(ctx: ^Context, r: ^vulkan.Renderer) {
 	attachment := vk.AttachmentDescription {
 		format         = r.surface_format.format,
 		samples        = {._1},
@@ -263,17 +270,17 @@ create_ui_render_pass :: proc(r: ^vulkan_renderer) {
 		dependencyCount = 1,
 		pDependencies   = &dependency,
 	}
-	VK_CHECK(
-		vk.CreateRenderPass(r.device, &create_info, nil, &ui.render_pass),
+	vulkan.VK_CHECK(
+		vk.CreateRenderPass(r.device, &create_info, nil, &ctx.gpu.render_pass),
 		"vkCreateRenderPass(ui)",
 	)
 }
 
-create_ui_framebuffers :: proc(r: ^vulkan_renderer) {
-	ui := &r.ui.ui_ctx
+create_framebuffers :: proc(ctx: ^Context, r: ^vulkan.Renderer) {
+	ui := &ctx.gpu
 	ui.framebuffers = make([]vk.Framebuffer, len(r.swapchain_views), context.allocator)
-	for view, i in r.swapchain_views {
-		attachments := [1]vk.ImageView{view}
+	for image_view, i in r.swapchain_views {
+		attachments := [1]vk.ImageView{image_view}
 		create_info := vk.FramebufferCreateInfo {
 			sType           = .FRAMEBUFFER_CREATE_INFO,
 			renderPass      = ui.render_pass,
@@ -283,66 +290,57 @@ create_ui_framebuffers :: proc(r: ^vulkan_renderer) {
 			height          = r.extent.height,
 			layers          = 1,
 		}
-		VK_CHECK(
+		vulkan.VK_CHECK(
 			vk.CreateFramebuffer(r.device, &create_info, nil, &ui.framebuffers[i]),
 			"vkCreateFramebuffer(ui)",
 		)
 	}
 }
 
-rebuild_ui_pipeline :: proc(r: ^vulkan_renderer, rebuild_shader_module := true) {
-	ui := &r.ui.ui_ctx
-	if ui.pipeline != {} {
-		vk.DestroyPipeline(r.device, ui.pipeline, nil)
-		ui.pipeline = {}
+reload_shader :: proc(ctx: ^Context, r: ^vulkan.Renderer) {
+	_ = vk.DeviceWaitIdle(r.device)
+	destroy_pipeline(ctx, r)
+	if ctx.gpu.shader_module != {} {
+		vk.DestroyShaderModule(r.device, ctx.gpu.shader_module, nil)
+		ctx.gpu.shader_module = {}
 	}
-	if ui.pipeline_layout != {} {
-		vk.DestroyPipelineLayout(r.device, ui.pipeline_layout, nil)
-		ui.pipeline_layout = {}
-	}
-	if rebuild_shader_module && ui.shader_module != {} {
-		vk.DestroyShaderModule(r.device, ui.shader_module, nil)
-		ui.shader_module = {}
-	}
-	if rebuild_shader_module {
-		ui_code := compiler.load_shader_bytes("ui_shader.spirv")
-		defer delete(ui_code)
-		ui.shader_module = create_shader_module(ui_code)
-	}
-	create_ui_pipeline(r)
+	shader_code := shader_assets.load_bytes("ui_shader.spirv")
+	defer delete(shader_code)
+	ctx.gpu.shader_module = vulkan.create_shader_module(r, shader_code)
+	create_pipeline(ctx, r)
 }
 
-create_ui_pipeline :: proc(r: ^vulkan_renderer) {
-	ui := &r.ui.ui_ctx
+create_pipeline :: proc(ctx: ^Context, r: ^vulkan.Renderer) {
+	ui := &ctx.gpu
 	vert_stage := vk.PipelineShaderStageCreateInfo {
 		sType  = .PIPELINE_SHADER_STAGE_CREATE_INFO,
 		stage  = {.VERTEX},
 		module = ui.shader_module,
-		pName  = cstring("vs_main"),
+		pName  = cstring(bindings.UI_SHADER_VS_MAIN_ENTRY_POINT),
 	}
 	frag_stage := vk.PipelineShaderStageCreateInfo {
 		sType  = .PIPELINE_SHADER_STAGE_CREATE_INFO,
 		stage  = {.FRAGMENT},
 		module = ui.shader_module,
-		pName  = cstring("fs_main"),
+		pName  = cstring(bindings.UI_SHADER_FS_MAIN_ENTRY_POINT),
 	}
 	shader_stages := [2]vk.PipelineShaderStageCreateInfo{vert_stage, frag_stage}
-	bindings := [3]vk.VertexInputBindingDescription {
+	vertex_bindings := [3]vk.VertexInputBindingDescription {
 		{binding = 0, stride = 8, inputRate = .VERTEX},
 		{binding = 1, stride = 8, inputRate = .VERTEX},
 		{binding = 2, stride = 4, inputRate = .VERTEX},
 	}
 	attributes := [3]vk.VertexInputAttributeDescription {
-		{location = 0, binding = 0, format = .R32G32_SFLOAT, offset = 0},
-		{location = 1, binding = 1, format = .R32G32_SFLOAT, offset = 0},
-		{location = 2, binding = 2, format = .R32_UINT, offset = 0},
+		{location = 0, binding = 0, format = .R32G32_SFLOAT},
+		{location = 1, binding = 1, format = .R32G32_SFLOAT},
+		{location = 2, binding = 2, format = .R32_UINT},
 	}
 	dynamic_states := [1]vk.DynamicState{.SCISSOR}
 	vertex_input := vk.PipelineVertexInputStateCreateInfo {
 		sType                           = .PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-		vertexBindingDescriptionCount   = 3,
-		pVertexBindingDescriptions      = &bindings[0],
-		vertexAttributeDescriptionCount = 3,
+		vertexBindingDescriptionCount   = len(vertex_bindings),
+		pVertexBindingDescriptions      = &vertex_bindings[0],
+		vertexAttributeDescriptionCount = len(attributes),
 		pVertexAttributeDescriptions    = &attributes[0],
 	}
 	input_assembly := vk.PipelineInputAssemblyStateCreateInfo {
@@ -350,8 +348,6 @@ create_ui_pipeline :: proc(r: ^vulkan_renderer) {
 		topology = .TRIANGLE_LIST,
 	}
 	viewport := vk.Viewport {
-		x        = 0,
-		y        = 0,
 		width    = f32(r.extent.width),
 		height   = f32(r.extent.height),
 		minDepth = 0,
@@ -369,7 +365,7 @@ create_ui_pipeline :: proc(r: ^vulkan_renderer) {
 	}
 	dynamic_state := vk.PipelineDynamicStateCreateInfo {
 		sType             = .PIPELINE_DYNAMIC_STATE_CREATE_INFO,
-		dynamicStateCount = 1,
+		dynamicStateCount = len(dynamic_states),
 		pDynamicStates    = &dynamic_states[0],
 	}
 	rasterizer := vk.PipelineRasterizationStateCreateInfo {
@@ -403,13 +399,13 @@ create_ui_pipeline :: proc(r: ^vulkan_renderer) {
 		setLayoutCount = 1,
 		pSetLayouts    = &ui.descriptor_layout,
 	}
-	VK_CHECK(
+	vulkan.VK_CHECK(
 		vk.CreatePipelineLayout(r.device, &layout_info, nil, &ui.pipeline_layout),
 		"vkCreatePipelineLayout(ui)",
 	)
 	create_info := vk.GraphicsPipelineCreateInfo {
 		sType               = .GRAPHICS_PIPELINE_CREATE_INFO,
-		stageCount          = 2,
+		stageCount          = len(shader_stages),
 		pStages             = &shader_stages[0],
 		pVertexInputState   = &vertex_input,
 		pInputAssemblyState = &input_assembly,
@@ -422,61 +418,55 @@ create_ui_pipeline :: proc(r: ^vulkan_renderer) {
 		renderPass          = ui.render_pass,
 		subpass             = 0,
 	}
-	VK_CHECK(
+	vulkan.VK_CHECK(
 		vk.CreateGraphicsPipelines(r.device, {}, 1, &create_info, nil, &ui.pipeline),
 		"vkCreateGraphicsPipelines(ui)",
 	)
-	r.ui.ui_write_consts()
+	write_constants(ctx, r)
 }
 
-destroy_ui_swapchain_objects :: proc(r: ^vulkan_renderer) {
-	ui := &r.ui.ui_ctx
-	for framebuffer in ui.framebuffers {
+destroy_pipeline :: proc(ctx: ^Context, r: ^vulkan.Renderer) {
+	if ctx.gpu.pipeline != {} {
+		vk.DestroyPipeline(r.device, ctx.gpu.pipeline, nil)
+		ctx.gpu.pipeline = {}
+	}
+	if ctx.gpu.pipeline_layout != {} {
+		vk.DestroyPipelineLayout(r.device, ctx.gpu.pipeline_layout, nil)
+		ctx.gpu.pipeline_layout = {}
+	}
+}
+
+destroy_swapchain_objects :: proc(ctx: ^Context, r: ^vulkan.Renderer) {
+	for framebuffer in ctx.gpu.framebuffers {
 		if framebuffer != {} {
 			vk.DestroyFramebuffer(r.device, framebuffer, nil)
 		}
 	}
-	delete(ui.framebuffers)
-	ui.framebuffers = nil
-	if ui.pipeline != {} {
-		vk.DestroyPipeline(r.device, ui.pipeline, nil)
-		ui.pipeline = {}
-	}
-	if ui.pipeline_layout != {} {
-		vk.DestroyPipelineLayout(r.device, ui.pipeline_layout, nil)
-		ui.pipeline_layout = {}
-	}
-	if ui.render_pass != {} {
-		vk.DestroyRenderPass(r.device, ui.render_pass, nil)
-		ui.render_pass = {}
+	delete(ctx.gpu.framebuffers)
+	ctx.gpu.framebuffers = nil
+	destroy_pipeline(ctx, r)
+	if ctx.gpu.render_pass != {} {
+		vk.DestroyRenderPass(r.device, ctx.gpu.render_pass, nil)
+		ctx.gpu.render_pass = {}
 	}
 }
 
-shutdown_ui :: proc(r: ^vulkan_renderer) {
-	ui := &r.ui.ui_ctx
-	destroy_ui_swapchain_objects(r)
-	if ui.shader_module != {} {
-		vk.DestroyShaderModule(r.device, ui.shader_module, nil)
+gpu_destroy :: proc(ctx: ^Context, r: ^vulkan.Renderer) {
+	destroy_swapchain_objects(ctx, r)
+	if ctx.gpu.shader_module != {} {
+		vk.DestroyShaderModule(r.device, ctx.gpu.shader_module, nil)
 	}
-	if ui.descriptor_pool != {} {
-		vk.DestroyDescriptorPool(r.device, ui.descriptor_pool, nil)
+	if ctx.gpu.descriptor_pool != {} {
+		vk.DestroyDescriptorPool(r.device, ctx.gpu.descriptor_pool, nil)
 	}
-	if ui.descriptor_layout != {} {
-		vk.DestroyDescriptorSetLayout(r.device, ui.descriptor_layout, nil)
+	if ctx.gpu.descriptor_layout != {} {
+		vk.DestroyDescriptorSetLayout(r.device, ctx.gpu.descriptor_layout, nil)
 	}
-	if ui.sampler != {} {
-		vk.DestroySampler(r.device, ui.sampler, nil)
-	}
-	if ui.texture_view != {} {
-		vk.DestroyImageView(r.device, ui.texture_view, nil)
-	}
-	if ui.texture_image != {} {
-		vma.DestroyImage(r.allocator_vma, ui.texture_image, ui.texture_allocation)
-	}
-	destroy_buffer(r, &ui.vertex_buffer)
-	destroy_buffer(r, &ui.tex_buffer)
-	destroy_buffer(r, &ui.color_buffer)
-	destroy_buffer(r, &ui.index_buffer)
-	destroy_buffer(r, &ui.const_buffer)
-	vma.DestroyAllocator(r.allocator_vma)
+	vulkan.destroy_image(r, &ctx.gpu.texture)
+	vulkan.destroy_buffer(r, &ctx.gpu.vertex_buffer)
+	vulkan.destroy_buffer(r, &ctx.gpu.tex_buffer)
+	vulkan.destroy_buffer(r, &ctx.gpu.color_buffer)
+	vulkan.destroy_buffer(r, &ctx.gpu.index_buffer)
+	vulkan.destroy_buffer(r, &ctx.gpu.const_buffer)
+	ctx.gpu = {}
 }

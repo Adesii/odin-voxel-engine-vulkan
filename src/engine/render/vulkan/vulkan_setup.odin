@@ -1,14 +1,14 @@
 package vkapi
 
-import vma "../../vendor/odin-vma"
-import "base:runtime"
+import vma "../../../../vendor/odin-vma"
 import "core:fmt"
+import "core:strings"
 import sdl "vendor:sdl3"
 import vk "vendor:vulkan"
 
-init :: proc(window: ^sdl.Window) {
-	// context = runtime.default_context()
-	renderer.window = window
+init :: proc(r: ^Renderer, window: ^sdl.Window, config: Renderer_Config) {
+	r^ = {}
+	r.window = window
 	if !sdl.Vulkan_LoadLibrary(nil) {
 		fmt.panicf("Failed to load Vulkan loader: %v", sdl.GetError())
 	}
@@ -17,8 +17,7 @@ init :: proc(window: ^sdl.Window) {
 		fmt.panicf("SDL_Vulkan_GetVkGetInstanceProcAddr failed: %v", sdl.GetError())
 	}
 	vk.load_proc_addresses_global(cast(rawptr)vk_proc)
-	r := &renderer
-	create_instance(r)
+	create_instance(r, config)
 	create_debug_messenger(r)
 	create_surface(r, window)
 	pick_physical_device(r)
@@ -27,15 +26,11 @@ init :: proc(window: ^sdl.Window) {
 	create_command_pool(r)
 	create_sync_objects(r)
 	initialize_vma(r)
-	init_ui(r)
 	create_swapchain_objects(r)
-	rebuild_shaders()
-	for inits in r.init_proc {
-		inits(r)
-	}
+	reload_presentation_shader(r, config.presentation_shader)
 }
 
-initialize_vma :: proc(r: ^vulkan_renderer) {
+initialize_vma :: proc(r: ^Renderer) {
 	r.vulkan_functions = vma.create_vulkan_functions()
 
 	create_info_vma := vma.AllocatorCreateInfo {
@@ -55,7 +50,7 @@ initialize_vma :: proc(r: ^vulkan_renderer) {
 	VK_CHECK(vma.CreateAllocator(&create_info_vma, &r.allocator_vma), "vmaCreateAllocator")
 }
 
-create_instance :: proc(r: ^vulkan_renderer) {
+create_instance :: proc(r: ^Renderer, config: Renderer_Config) {
 	ext_count: sdl.Uint32
 	ext_ptr := sdl.Vulkan_GetInstanceExtensions(&ext_count)
 	if ext_ptr == nil || ext_count == 0 {
@@ -81,11 +76,23 @@ create_instance :: proc(r: ^vulkan_renderer) {
 		)
 	}
 
+	application_name := config.application_name
+	if application_name == "" {
+		application_name = "Odin Application"
+	}
+	engine_name := config.engine_name
+	if engine_name == "" {
+		engine_name = "Odin Engine"
+	}
+	application_name_c := strings.clone_to_cstring(application_name)
+	defer delete(application_name_c)
+	engine_name_c := strings.clone_to_cstring(engine_name)
+	defer delete(engine_name_c)
 	app_info := vk.ApplicationInfo {
 		sType              = .APPLICATION_INFO,
-		pApplicationName   = cstring("odin-voxel"),
+		pApplicationName   = application_name_c,
 		applicationVersion = vk.MAKE_API_VERSION(0, 0, 1, 0),
-		pEngineName        = cstring("none"),
+		pEngineName        = engine_name_c,
 		engineVersion      = vk.MAKE_API_VERSION(0, 0, 1, 0),
 		apiVersion         = vk.API_VERSION_1_4,
 	}
@@ -111,13 +118,13 @@ create_instance :: proc(r: ^vulkan_renderer) {
 	vk.load_proc_addresses_instance(r.instance)
 }
 
-create_surface :: proc(r: ^vulkan_renderer, window: ^sdl.Window) {
+create_surface :: proc(r: ^Renderer, window: ^sdl.Window) {
 	if !sdl.Vulkan_CreateSurface(window, r.instance, nil, &r.surface) {
 		fmt.panicf("Failed to create Vulkan surface: %v", sdl.GetError())
 	}
 }
 
-pick_physical_device :: proc(r: ^vulkan_renderer) {
+pick_physical_device :: proc(r: ^Renderer) {
 	device_count: u32
 	VK_CHECK(
 		vk.EnumeratePhysicalDevices(r.instance, &device_count, nil),
@@ -145,7 +152,7 @@ pick_physical_device :: proc(r: ^vulkan_renderer) {
 	fmt.panicf("Failed to find a suitable Vulkan physical device")
 }
 
-find_queue_families :: proc(r: ^vulkan_renderer, device: vk.PhysicalDevice) -> (u32, u32, bool) {
+find_queue_families :: proc(r: ^Renderer, device: vk.PhysicalDevice) -> (u32, u32, bool) {
 	queue_family_count: u32
 	vk.GetPhysicalDeviceQueueFamilyProperties(device, &queue_family_count, nil)
 	if queue_family_count == 0 {
@@ -196,10 +203,7 @@ find_queue_families :: proc(r: ^vulkan_renderer, device: vk.PhysicalDevice) -> (
 		len(support.formats) > 0 && len(support.present_modes) > 0
 }
 
-query_swapchain_support :: proc(
-	r: ^vulkan_renderer,
-	device: vk.PhysicalDevice,
-) -> swapchain_support {
+query_swapchain_support :: proc(r: ^Renderer, device: vk.PhysicalDevice) -> swapchain_support {
 	support: swapchain_support
 	VK_CHECK(
 		vk.GetPhysicalDeviceSurfaceCapabilitiesKHR(device, r.surface, &support.capabilities),
@@ -246,7 +250,7 @@ query_swapchain_support :: proc(
 	return support
 }
 
-create_descriptor_pool :: proc(r: ^vulkan_renderer) {
+create_descriptor_pool :: proc(r: ^Renderer) {
 	pool_sizes := [4]vk.DescriptorPoolSize {
 		{
 			type            = .UNIFORM_BUFFER,
@@ -267,7 +271,7 @@ create_descriptor_pool :: proc(r: ^vulkan_renderer) {
 		"vkCreateDescriptorPool",
 	)
 }
-create_device :: proc(r: ^vulkan_renderer) {
+create_device :: proc(r: ^Renderer) {
 	queue_priority := f32(1)
 	queue_infos: [2]vk.DeviceQueueCreateInfo
 	queue_info_count := 1
@@ -315,9 +319,8 @@ create_device :: proc(r: ^vulkan_renderer) {
 		features2.features.shaderStorageImageReadWithoutFormat = true
 		features2.features.shaderStorageImageWriteWithoutFormat = true
 	}
-	extensionArray := [3]cstring {
+	extension_array := [2]cstring {
 		cstring(vk.KHR_SWAPCHAIN_EXTENSION_NAME),
-		cstring(vk.KHR_SHARED_PRESENTABLE_IMAGE_EXTENSION_NAME),
 		cstring(vk.KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME),
 	}
 
@@ -330,8 +333,8 @@ create_device :: proc(r: ^vulkan_renderer) {
 		pNext                   = &features2,
 		queueCreateInfoCount    = u32(queue_info_count),
 		pQueueCreateInfos       = raw_data(&queue_infos),
-		enabledExtensionCount   = u32(len(extensionArray)),
-		ppEnabledExtensionNames = raw_data(&extensionArray),
+		enabledExtensionCount   = u32(len(extension_array)),
+		ppEnabledExtensionNames = raw_data(&extension_array),
 		pEnabledFeatures        = nil,
 	}
 	VK_CHECK(vk.CreateDevice(r.physical_device, &create_info, nil, &r.device), "vkCreateDevice")
@@ -341,7 +344,7 @@ create_device :: proc(r: ^vulkan_renderer) {
 	vk.GetDeviceQueue(r.device, r.present_queue_index, 0, &r.present_queue)
 }
 
-create_command_pool :: proc(r: ^vulkan_renderer) {
+create_command_pool :: proc(r: ^Renderer) {
 	create_info := vk.CommandPoolCreateInfo {
 		sType            = .COMMAND_POOL_CREATE_INFO,
 		flags            = {.RESET_COMMAND_BUFFER},
@@ -353,7 +356,7 @@ create_command_pool :: proc(r: ^vulkan_renderer) {
 	)
 }
 
-allocate_command_buffers :: proc(r: ^vulkan_renderer) {
+allocate_command_buffers :: proc(r: ^Renderer) {
 	alloc_info := vk.CommandBufferAllocateInfo {
 		sType              = .COMMAND_BUFFER_ALLOCATE_INFO,
 		commandPool        = r.command_pool,
@@ -366,7 +369,7 @@ allocate_command_buffers :: proc(r: ^vulkan_renderer) {
 	)
 }
 
-create_sync_objects :: proc(r: ^vulkan_renderer) {
+create_sync_objects :: proc(r: ^Renderer) {
 	sem_info := vk.SemaphoreCreateInfo {
 		sType = .SEMAPHORE_CREATE_INFO,
 	}

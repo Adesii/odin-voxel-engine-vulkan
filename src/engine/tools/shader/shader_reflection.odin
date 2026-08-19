@@ -1,4 +1,4 @@
-package utils
+package shader_tools
 
 import "core:encoding/json"
 import "core:fmt"

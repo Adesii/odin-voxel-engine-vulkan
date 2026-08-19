@@ -1,4 +1,4 @@
-package utils
+package shader_tools
 
 import "core:fmt"
 import "core:os"
@@ -99,44 +99,4 @@ compile_file :: proc(filename: string, input_file: string, output_dir: string) {
 		fmt.panicf("Compilation Failed!: %s", err3)
 	}
 	fmt.printfln("Compilation Complete!")
-}
-
-load_shader :: proc(shader_name: string) -> string {
-	comp := get_shader_path(shader_name)
-	defer delete(comp)
-	fmt.printfln("Loading shader: %s", comp)
-	code, err := os.read_entire_file(comp, context.allocator)
-	defer delete(code)
-	if err != nil {
-		fmt.panicf("Failed to read shader file: %s\n", err)
-	}
-	cloned := strings.clone_from_bytes(code)
-	return cloned
-}
-
-load_shader_bytes :: proc(shader_name: string) -> []byte {
-	path := get_shader_path(shader_name)
-	defer delete(path)
-	fmt.printfln("Loading shader: %s", path)
-	code, err := os.read_entire_file(path, context.allocator)
-	if err != nil {
-		fmt.panicf("Failed to read shader file: %s, at path: %s", err, path)
-	}
-	return code
-}
-
-
-get_shader_path :: proc(shader_name: string) -> string {
-	if strings.ends_with(shader_name, ".slang") {
-		return strings.join({"shader_src/", shader_name}, "")
-	}
-	type := "spirv"
-	shader_name := shader_name
-	if strings.ends_with(shader_name, ".wgsl") {
-		type = "wgsl"
-	}
-	shader_name = strings.trim_suffix(shader_name, type)
-	shader_name = strings.trim_suffix(shader_name, ".")
-	comp := strings.join({"shaders/", shader_name, ".", type}, "")
-	return comp
 }

@@ -1,14 +1,12 @@
 package vkapi
 
-import "../shaders/default_shader"
-import compiler "../utils"
-import "../utils"
-import "base:runtime"
+import vma "../../../../vendor/odin-vma"
+import "../../../shaders/default_shader"
 import "core:fmt"
 import sdl "vendor:sdl3"
 import vk "vendor:vulkan"
 
-create_shader_module :: proc(bytes: []byte) -> vk.ShaderModule {
+create_shader_module :: proc(r: ^Renderer, bytes: []byte) -> vk.ShaderModule {
 	if len(bytes) == 0 || len(bytes) % 4 != 0 {
 		fmt.panicf("Invalid SPIR-V bytecode size: %d", len(bytes))
 	}
@@ -18,32 +16,16 @@ create_shader_module :: proc(bytes: []byte) -> vk.ShaderModule {
 		pCode    = cast(^u32)raw_data(bytes),
 	}
 	module: vk.ShaderModule
-	VK_CHECK(
-		vk.CreateShaderModule(renderer.device, &create_info, nil, &module),
-		"vkCreateShaderModule",
-	)
+	VK_CHECK(vk.CreateShaderModule(r.device, &create_info, nil, &module), "vkCreateShaderModule")
 	return module
 }
 
-rebuild_shaders :: proc() {
-	context = runtime.default_context()
-	r := &renderer
-	fmt.printfln("Reloading shaders...")
-	compiler.compile("shader_src/", "shaders/")
-
-	shader_path := compiler.get_shader_path("default.slang")
-	defer delete(shader_path)
-	utils.add_file_watcher(shader_path, proc(filepath: string) {rebuild_shaders()})
-
+reload_presentation_shader :: proc(r: ^Renderer, shader_code: []byte) {
 	_ = vk.DeviceWaitIdle(r.device)
 
 	if r.fullscreen.pipeline != {} {
 		vk.DestroyPipeline(r.device, r.fullscreen.pipeline, nil)
 		r.fullscreen.pipeline = {}
-	}
-	if r.fullscreen.pipeline_layout != {} {
-		vk.DestroyPipelineLayout(r.device, r.fullscreen.pipeline_layout, nil)
-		r.fullscreen.pipeline_layout = {}
 	}
 	if r.fullscreen.vert_module != {} {
 		vk.DestroyShaderModule(r.device, r.fullscreen.vert_module, nil)
@@ -54,18 +36,40 @@ rebuild_shaders :: proc() {
 		r.fullscreen.frag_module = {}
 	}
 
-	vertex_code := compiler.load_shader_bytes("default.spirv")
-	defer delete(vertex_code)
-	fragment_code := compiler.load_shader_bytes("default.spirv")
-	defer delete(fragment_code)
-
-	r.fullscreen.vert_module = create_shader_module(vertex_code)
-	r.fullscreen.frag_module = create_shader_module(fragment_code)
+	if r.fullscreen.descriptor_layout == {} {
+		create_presentation_descriptors(r)
+	}
+	r.fullscreen.vert_module = create_shader_module(r, shader_code)
+	r.fullscreen.frag_module = create_shader_module(r, shader_code)
 	create_pipeline(r)
-	rebuild_ui_pipeline(r)
 }
 
-create_pipeline :: proc(r: ^vulkan_renderer) {
+create_presentation_descriptors :: proc(r: ^Renderer) {
+	binding := vk.DescriptorSetLayoutBinding {
+		binding         = default_shader.DEFAULT_BINDING_G_TEXTURE,
+		descriptorType  = .COMBINED_IMAGE_SAMPLER,
+		descriptorCount = 1,
+		stageFlags      = {.FRAGMENT},
+	}
+	layout_info := vk.DescriptorSetLayoutCreateInfo {
+		sType        = .DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+		bindingCount = 1,
+		pBindings    = &binding,
+	}
+	VK_CHECK(
+		vk.CreateDescriptorSetLayout(r.device, &layout_info, nil, &r.fullscreen.descriptor_layout),
+		"vkCreateDescriptorSetLayout(presentation)",
+	)
+	r.fullscreen.pipeline_layout = create_pipeline_layout(r, r.fullscreen.descriptor_layout)
+	for i in 0 ..< MAX_FRAMES_IN_FLIGHT {
+		r.fullscreen.descriptor_sets[i] = allocate_descriptor_set(
+			r,
+			r.fullscreen.descriptor_layout,
+		)
+	}
+}
+
+create_pipeline :: proc(r: ^Renderer) {
 	vert_stage := vk.PipelineShaderStageCreateInfo {
 		sType  = .PIPELINE_SHADER_STAGE_CREATE_INFO,
 		stage  = {.VERTEX},
@@ -125,51 +129,6 @@ create_pipeline :: proc(r: ^vulkan_renderer) {
 		pAttachments    = &color_blend_attachment,
 	}
 
-	descriptor_set_layout_binding := vk.DescriptorSetLayoutBinding {
-		binding         = 0,
-		descriptorType  = .COMBINED_IMAGE_SAMPLER,
-		descriptorCount = 1,
-		stageFlags      = {.FRAGMENT},
-	}
-	descriptor_set_layout_create_info := [1]vk.DescriptorSetLayoutCreateInfo {
-		{
-			sType = .DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-			bindingCount = 1,
-			pBindings = &descriptor_set_layout_binding,
-		},
-	}
-	VK_CHECK(
-		vk.CreateDescriptorSetLayout(
-			r.device,
-			&descriptor_set_layout_create_info[0],
-			nil,
-			&r.fullscreen.descriptor_layout,
-		),
-		"vkCreateDescriptorSetLayout",
-	)
-	layout_info := vk.PipelineLayoutCreateInfo {
-		sType          = .PIPELINE_LAYOUT_CREATE_INFO,
-		setLayoutCount = 1,
-		pSetLayouts    = &r.fullscreen.descriptor_layout,
-	}
-	VK_CHECK(
-		vk.CreatePipelineLayout(r.device, &layout_info, nil, &r.fullscreen.pipeline_layout),
-		"vkCreatePipelineLayout",
-	)
-	descriptor_set_allocate_info := vk.DescriptorSetAllocateInfo {
-		sType              = .DESCRIPTOR_SET_ALLOCATE_INFO,
-		descriptorPool     = r.descriptor_pool,
-		descriptorSetCount = 1,
-		pSetLayouts        = &r.fullscreen.descriptor_layout,
-	}
-	VK_CHECK(
-		vk.AllocateDescriptorSets(
-			r.device,
-			&descriptor_set_allocate_info,
-			&r.fullscreen.descriptor_set,
-		),
-		"vkAllocateDescriptorSets",
-	)
 	create_info := vk.GraphicsPipelineCreateInfo {
 		sType               = .GRAPHICS_PIPELINE_CREATE_INFO,
 		stageCount          = 2,
@@ -192,16 +151,16 @@ create_pipeline :: proc(r: ^vulkan_renderer) {
 }
 
 
-bind_fullscreen_descriptors :: proc(r: ^vulkan_renderer) {
+bind_fullscreen_descriptors :: proc(r: ^Renderer, source: Image, frame_slot: int) {
 	image_info := vk.DescriptorImageInfo {
-		sampler     = r.voxel.image_blit.sampler,
-		imageView   = r.voxel.image_blit.view,
+		sampler     = source.sampler,
+		imageView   = source.view,
 		imageLayout = .SHADER_READ_ONLY_OPTIMAL,
 	}
 	write_descriptor := vk.WriteDescriptorSet {
 		sType           = .WRITE_DESCRIPTOR_SET,
-		dstSet          = r.fullscreen.descriptor_set,
-		dstBinding      = 0, // Matches your shader layout binding
+		dstSet          = r.fullscreen.descriptor_sets[frame_slot],
+		dstBinding      = default_shader.DEFAULT_BINDING_G_TEXTURE,
 		descriptorCount = 1,
 		descriptorType  = .COMBINED_IMAGE_SAMPLER,
 		pImageInfo      = &image_info,
@@ -210,17 +169,25 @@ bind_fullscreen_descriptors :: proc(r: ^vulkan_renderer) {
 }
 
 record_command_buffer :: proc(
-	r: ^vulkan_renderer,
+	r: ^Renderer,
 	command_buffer: vk.CommandBuffer,
 	image_index: u32,
+	desc: Frame_Description,
 ) {
-
+	frame_slot := r.frame_index % MAX_FRAMES_IN_FLIGHT
 	VK_CHECK(vk.ResetCommandBuffer(command_buffer, {}), "vkResetCommandBuffer")
 	begin_info := vk.CommandBufferBeginInfo {
 		sType = .COMMAND_BUFFER_BEGIN_INFO,
 		flags = {.ONE_TIME_SUBMIT},
 	}
 	VK_CHECK(vk.BeginCommandBuffer(command_buffer, &begin_info), "vkBeginCommandBuffer")
+
+	if desc.record_content != nil {
+		desc.record_content(desc.content_data, r, command_buffer, image_index)
+	}
+
+	assert(desc.source_image.view != {}, "Frame source image view is invalid")
+	assert(desc.source_image.sampler != {}, "Frame source image sampler is invalid")
 	clear_value := vk.ClearValue {
 		color = {float32 = [4]f32{0.1, 0.12, 0.16, 1}},
 	}
@@ -232,9 +199,8 @@ record_command_buffer :: proc(
 		clearValueCount = 1,
 		pClearValues = &clear_value,
 	}
-	r.voxel.render(r, command_buffer)
 	vk.CmdBeginRenderPass(command_buffer, &render_pass_info, .INLINE)
-	bind_fullscreen_descriptors(r)
+	bind_fullscreen_descriptors(r, desc.source_image, frame_slot)
 	vk.CmdBindPipeline(command_buffer, .GRAPHICS, r.fullscreen.pipeline)
 	vk.CmdBindDescriptorSets(
 		command_buffer,
@@ -242,46 +208,21 @@ record_command_buffer :: proc(
 		r.fullscreen.pipeline_layout,
 		0,
 		1,
-		&r.fullscreen.descriptor_set,
+		&r.fullscreen.descriptor_sets[frame_slot],
 		0,
 		nil,
 	)
 	vk.CmdDraw(command_buffer, 6, 1, 0, 0)
 	vk.CmdEndRenderPass(command_buffer)
 
-	r.ui.ui_render(command_buffer, r.ui.ui_ctx.framebuffers[image_index])
-
-	// 4. Transition compute texture back to GENERAL layout so next frame can write to it again
-	reset_barrier := vk.ImageMemoryBarrier {
-		sType = .IMAGE_MEMORY_BARRIER,
-		oldLayout = .SHADER_READ_ONLY_OPTIMAL,
-		newLayout = .GENERAL,
-		image = renderer.voxel.image_blit.image,
-		subresourceRange = {aspectMask = {.COLOR}, levelCount = 1, layerCount = 1},
-		srcAccessMask = {.SHADER_READ},
-		dstAccessMask = {.SHADER_WRITE},
+	if desc.record_overlay != nil {
+		desc.record_overlay(desc.overlay_data, r, command_buffer, image_index)
 	}
-	vk.CmdPipelineBarrier(
-		command_buffer,
-		{.FRAGMENT_SHADER},
-		{.COMPUTE_SHADER},
-		{},
-		0,
-		nil,
-		0,
-		nil,
-		1,
-		&reset_barrier,
-	)
-
-	// Now you can safely end your command buffer and call vkQueueSubmit + vkQueuePresentKHR!
 
 	VK_CHECK(vk.EndCommandBuffer(command_buffer), "vkEndCommandBuffer")
 }
 
-frame :: proc() {
-	context = runtime.default_context()
-	r := &renderer
+frame :: proc(r: ^Renderer, desc: Frame_Description) -> Frame_Result {
 	frame_slot := r.frame_index % MAX_FRAMES_IN_FLIGHT
 	VK_CHECK(
 		vk.WaitForFences(r.device, 1, &r.in_flight[frame_slot], true, vk.WHOLE_SIZE),
@@ -298,8 +239,10 @@ frame :: proc() {
 		&image_index,
 	)
 	if acquire_result == .ERROR_OUT_OF_DATE_KHR {
-		recreate_swapchain(r)
-		return
+		if recreate_swapchain(r, desc.swapchain) {
+			return .SWAPCHAIN_RECREATED
+		}
+		return .SKIPPED
 	}
 	if acquire_result != .SUCCESS && acquire_result != .SUBOPTIMAL_KHR {
 		fmt.panicf("vkAcquireNextImageKHR failed: %v", acquire_result)
@@ -313,7 +256,7 @@ frame :: proc() {
 	VK_CHECK(vk.ResetFences(r.device, 1, &r.in_flight[frame_slot]), "vkResetFences")
 	r.images_in_flight[image_index] = r.in_flight[frame_slot]
 
-	record_command_buffer(r, r.command_buffers[frame_slot], image_index)
+	record_command_buffer(r, r.command_buffers[frame_slot], image_index, desc)
 	render_finished := r.render_finished[image_index]
 	wait_stage := vk.PipelineStageFlags{.COLOR_ATTACHMENT_OUTPUT}
 	submit_info := vk.SubmitInfo {
@@ -339,19 +282,23 @@ frame :: proc() {
 		pImageIndices      = &image_index,
 	}
 	present_result := vk.QueuePresentKHR(r.present_queue, &present_info)
+	r.frame_index += 1
 	if present_result == .ERROR_OUT_OF_DATE_KHR ||
 	   present_result == .SUBOPTIMAL_KHR ||
 	   r.framebuffer_resized {
 		r.framebuffer_resized = false
-		recreate_swapchain(r)
-	} else if present_result != .SUCCESS {
+		if recreate_swapchain(r, desc.swapchain) {
+			return .SWAPCHAIN_RECREATED
+		}
+		return .SKIPPED
+	}
+	if present_result != .SUCCESS {
 		fmt.panicf("vkQueuePresentKHR failed: %v", present_result)
 	}
-	r.frame_index += 1
+	return .RENDERED
 }
 
-finish :: proc() {
-	r := &renderer
+finish :: proc(r: ^Renderer) {
 	if r.device != {} {
 		_ = vk.DeviceWaitIdle(r.device)
 	}
@@ -362,10 +309,12 @@ finish :: proc() {
 	if r.fullscreen.frag_module != {} {
 		vk.DestroyShaderModule(r.device, r.fullscreen.frag_module, nil)
 	}
-	for unloads in r.unload_proc {
-		unloads(r)
+	if r.fullscreen.pipeline_layout != {} {
+		vk.DestroyPipelineLayout(r.device, r.fullscreen.pipeline_layout, nil)
 	}
-	shutdown_ui(r)
+	if r.fullscreen.descriptor_layout != {} {
+		vk.DestroyDescriptorSetLayout(r.device, r.fullscreen.descriptor_layout, nil)
+	}
 	for semaphore in r.image_available {
 		if semaphore != {} {
 			vk.DestroySemaphore(r.device, semaphore, nil)
@@ -382,6 +331,9 @@ finish :: proc() {
 	if r.descriptor_pool != {} {
 		vk.DestroyDescriptorPool(r.device, r.descriptor_pool, nil)
 	}
+	if r.allocator_vma != {} {
+		vma.DestroyAllocator(r.allocator_vma)
+	}
 	if r.device != {} {
 		vk.DestroyDevice(r.device, nil)
 	}
@@ -395,4 +347,5 @@ finish :: proc() {
 		vk.DestroyInstance(r.instance, nil)
 	}
 	sdl.Vulkan_UnloadLibrary()
+	r^ = {}
 }

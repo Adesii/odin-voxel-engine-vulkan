@@ -21,11 +21,11 @@ choose_present_mode :: proc(present_modes: []vk.PresentModeKHR) -> vk.PresentMod
 	return .FIFO
 }
 
-choose_extent :: proc(capabilities: vk.SurfaceCapabilitiesKHR) -> vk.Extent2D {
+choose_extent :: proc(r: ^Renderer, capabilities: vk.SurfaceCapabilitiesKHR) -> vk.Extent2D {
 	if capabilities.currentExtent.width != ~u32(0) {
 		return capabilities.currentExtent
 	}
-	width, height := get_window_size()
+	width, height := get_window_size(r)
 	extent := vk.Extent2D {
 		width  = cast(u32)width,
 		height = cast(u32)height,
@@ -45,7 +45,7 @@ choose_extent :: proc(capabilities: vk.SurfaceCapabilitiesKHR) -> vk.Extent2D {
 	return extent
 }
 
-create_swapchain_objects :: proc(r: ^vulkan_renderer) {
+create_swapchain_objects :: proc(r: ^Renderer) {
 	support := query_swapchain_support(r, r.physical_device)
 	defer {
 		delete(support.formats)
@@ -53,7 +53,7 @@ create_swapchain_objects :: proc(r: ^vulkan_renderer) {
 	}
 	r.surface_format = choose_surface_format(support.formats)
 	r.present_mode = choose_present_mode(support.present_modes)
-	r.extent = choose_extent(support.capabilities)
+	r.extent = choose_extent(r, support.capabilities)
 
 	image_count := support.capabilities.minImageCount + 1
 	if support.capabilities.maxImageCount > 0 && image_count > support.capabilities.maxImageCount {
@@ -137,13 +137,12 @@ create_swapchain_objects :: proc(r: ^vulkan_renderer) {
 
 	create_render_pass(r)
 	create_framebuffers(r)
-	create_ui_swapchain_objects(r)
 	if r.command_buffers[0] == {} {
 		allocate_command_buffers(r)
 	}
 }
 
-create_render_pass :: proc(r: ^vulkan_renderer) {
+create_render_pass :: proc(r: ^Renderer) {
 	attachment := vk.AttachmentDescription {
 		format         = r.surface_format.format,
 		samples        = {._1},
@@ -186,7 +185,7 @@ create_render_pass :: proc(r: ^vulkan_renderer) {
 	)
 }
 
-create_framebuffers :: proc(r: ^vulkan_renderer) {
+create_framebuffers :: proc(r: ^Renderer) {
 	r.framebuffers = make([]vk.Framebuffer, len(r.swapchain_views), context.allocator)
 	for view, i in r.swapchain_views {
 		attachments := [1]vk.ImageView{view}
@@ -206,7 +205,7 @@ create_framebuffers :: proc(r: ^vulkan_renderer) {
 	}
 }
 
-destroy_swapchain_objects :: proc(r: ^vulkan_renderer) {
+destroy_swapchain_objects :: proc(r: ^Renderer) {
 	for framebuffer in r.framebuffers {
 		if framebuffer != {} {
 			vk.DestroyFramebuffer(r.device, framebuffer, nil)
@@ -214,15 +213,10 @@ destroy_swapchain_objects :: proc(r: ^vulkan_renderer) {
 	}
 	delete(r.framebuffers)
 	r.framebuffers = nil
-	destroy_ui_swapchain_objects(r)
 
 	if r.fullscreen.pipeline != {} {
 		vk.DestroyPipeline(r.device, r.fullscreen.pipeline, nil)
 		r.fullscreen.pipeline = {}
-	}
-	if r.fullscreen.pipeline_layout != {} {
-		vk.DestroyPipelineLayout(r.device, r.fullscreen.pipeline_layout, nil)
-		r.fullscreen.pipeline_layout = {}
 	}
 	if r.fullscreen.render_pass != {} {
 		vk.DestroyRenderPass(r.device, r.fullscreen.render_pass, nil)
@@ -252,18 +246,24 @@ destroy_swapchain_objects :: proc(r: ^vulkan_renderer) {
 	}
 }
 
-recreate_swapchain :: proc(r: ^vulkan_renderer) {
-	width, height := get_window_size()
+recreate_swapchain :: proc(r: ^Renderer, callbacks: Swapchain_Callbacks) -> bool {
+	width, height := get_window_size(r)
 	if width == 0 || height == 0 {
-		return
+		return false
 	}
 	VK_CHECK(vk.DeviceWaitIdle(r.device), "vkDeviceWaitIdle")
+	if callbacks.before_destroy != nil {
+		callbacks.before_destroy(callbacks.data, r)
+	}
 	destroy_swapchain_objects(r)
 	create_swapchain_objects(r)
 	create_pipeline(r)
-	rebuild_ui_pipeline(r, false)
+	if callbacks.after_create != nil {
+		callbacks.after_create(callbacks.data, r)
+	}
+	return true
 }
 
-resize :: proc() {
-	renderer.framebuffer_resized = true
+resize :: proc(r: ^Renderer) {
+	r.framebuffer_resized = true
 }

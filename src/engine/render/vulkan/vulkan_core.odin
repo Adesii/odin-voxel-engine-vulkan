@@ -1,7 +1,6 @@
 package vkapi
 
-import vma "../../vendor/odin-vma"
-import "../utils"
+import vma "../../../../vendor/odin-vma"
 import intrinsics "base:intrinsics"
 import "base:runtime"
 import "core:fmt"
@@ -13,15 +12,54 @@ MAX_FRAMES_IN_FLIGHT :: 2
 VALIDATION_LAYER :: "VK_LAYER_KHRONOS_validation"
 
 
-vulkan_buffer :: struct {
+Buffer :: struct {
 	buffer:     vk.Buffer,
 	allocation: vma.Allocation,
 }
-vulkan_image :: struct {
+Image :: struct {
 	image:      vk.Image,
 	view:       vk.ImageView,
 	sampler:    vk.Sampler,
 	allocation: vma.Allocation,
+}
+
+Renderer_Config :: struct {
+	application_name:    string,
+	engine_name:         string,
+	presentation_shader: []byte,
+}
+
+Swapchain_Proc :: proc(data: rawptr, r: ^Renderer)
+Swapchain_Callbacks :: struct {
+	data:           rawptr,
+	before_destroy: Swapchain_Proc,
+	after_create:   Swapchain_Proc,
+}
+
+Frame_Record_Proc :: proc(
+	data: rawptr,
+	r: ^Renderer,
+	command_buffer: vk.CommandBuffer,
+	image_index: u32,
+)
+Frame_Description :: struct {
+	source_image:   Image,
+	content_data:   rawptr,
+	record_content: Frame_Record_Proc,
+	overlay_data:   rawptr,
+	record_overlay: Frame_Record_Proc,
+	swapchain:      Swapchain_Callbacks,
+}
+
+Frame_Result :: enum {
+	RENDERED,
+	SWAPCHAIN_RECREATED,
+	SKIPPED,
+}
+
+Descriptor_Binding :: struct {
+	binding: u32,
+	type:    vk.DescriptorType,
 }
 
 swapchain_support :: struct {
@@ -36,19 +74,10 @@ fullscreen_object :: struct {
 	vert_module:       vk.ShaderModule,
 	frag_module:       vk.ShaderModule,
 	render_pass:       vk.RenderPass,
-	descriptor_set:    vk.DescriptorSet,
+	descriptor_sets:   [MAX_FRAMES_IN_FLIGHT]vk.DescriptorSet,
 	descriptor_layout: vk.DescriptorSetLayout,
 }
-ui_ctx :: struct {
-	ui_ctx:          microui_ctx,
-	ui_write_consts: proc(),
-	ui_render:       proc(cmd: vk.CommandBuffer, image: vk.Framebuffer),
-}
-voxel_ctx :: struct {
-	image_blit: vulkan_image,
-	render:     proc(r: ^vulkan_renderer, cmd: vk.CommandBuffer),
-}
-vulkan_renderer :: struct {
+Renderer :: struct {
 	instance:             vk.Instance,
 	debug_messenger:      vk.DebugUtilsMessengerEXT,
 	allocator_vma:        vma.Allocator,
@@ -77,14 +106,9 @@ vulkan_renderer :: struct {
 	in_flight:            [MAX_FRAMES_IN_FLIGHT]vk.Fence,
 	frame_index:          int,
 	framebuffer_resized:  bool,
-	unload_proc:          [dynamic]proc(r: ^vulkan_renderer),
-	init_proc:            [dynamic]proc(r: ^vulkan_renderer),
-	ui:                   ui_ctx,
-	voxel:                voxel_ctx,
 	window:               ^sdl.Window,
 }
 
-renderer: vulkan_renderer
 
 validation_enabled :: proc() -> bool {
 	when ODIN_DEBUG || (ODIN_OPTIMIZATION_MODE == .Minimal) {
@@ -142,9 +166,9 @@ debug_callback :: proc "system" (
 	return false
 }
 
-get_window_size :: proc() -> (w: i32, h: i32) {
+get_window_size :: proc(r: ^Renderer) -> (w: i32, h: i32) {
 	width, height: i32
-	sdl.GetWindowSizeInPixels(renderer.window, &width, &height)
+	sdl.GetWindowSizeInPixels(r.window, &width, &height)
 	return width, height
 }
 has_validation_layer :: proc() -> bool {
@@ -171,7 +195,7 @@ has_validation_layer :: proc() -> bool {
 	return false
 }
 
-create_debug_messenger :: proc(r: ^vulkan_renderer) {
+create_debug_messenger :: proc(r: ^Renderer) {
 	if !validation_enabled() {
 		return
 	}
@@ -194,7 +218,7 @@ VK_CHECK :: proc(result: vk.Result, what: string) {
 }
 
 find_memory_type :: proc(
-	r: ^vulkan_renderer,
+	r: ^Renderer,
 	type_filter: u32,
 	properties: vk.MemoryPropertyFlags,
 ) -> u32 {
@@ -210,11 +234,11 @@ find_memory_type :: proc(
 }
 
 create_buffer :: proc(
-	r: ^vulkan_renderer,
+	r: ^Renderer,
 	size: int,
 	usage: vk.BufferUsageFlags,
 	properties: vk.MemoryPropertyFlags,
-) -> vulkan_buffer {
+) -> Buffer {
 	size := size
 	if (size <= 0) {
 		fmt.printfln("Attempted to create Vulkan buffer with non-positive size: %d", size)
@@ -240,7 +264,7 @@ create_buffer :: proc(
 		requiredFlags = properties, // Enforces the driver to use HOST_VISIBLE/HOST_COHERENT
 	}
 
-	b: vulkan_buffer
+	b: Buffer
 	b.allocation = vma.Allocation{}
 	b.buffer = vk.Buffer{}
 	// fmt.println("Creating buffer of size %d", size)
@@ -261,7 +285,7 @@ create_buffer :: proc(
 	return b
 }
 create_sampler :: proc(
-	r: ^vulkan_renderer,
+	r: ^Renderer,
 	filter: vk.Filter,
 	address_mode: vk.SamplerAddressMode,
 ) -> vk.Sampler {
@@ -290,22 +314,16 @@ create_sampler :: proc(
 	return sampler
 }
 
-create_pipeline_layout :: proc(
-	r: ^vulkan_renderer,
-	shader_name: string,
+create_descriptor_set_layout :: proc(
+	r: ^Renderer,
 	stage_flags: vk.ShaderStageFlags,
-	bindings: []struct {
-		binding: u32,
-		type:    vk.DescriptorType,
-	},
-) -> vk.PipelineLayout {
-	layout_bindings := make([]vk.DescriptorSetLayoutBinding, len(bindings), context.allocator)
-	defer delete(layout_bindings)
-	for i, b in bindings {
-		fmt.printfln("Creating pipeline layout binding: %v, type: %v", i.binding, i.type)
-		layout_bindings[b] = vk.DescriptorSetLayoutBinding {
-			binding         = i.binding,
-			descriptorType  = i.type,
+	bindings: []Descriptor_Binding,
+) -> vk.DescriptorSetLayout {
+	layout_bindings := make([]vk.DescriptorSetLayoutBinding, len(bindings), context.temp_allocator)
+	for binding, i in bindings {
+		layout_bindings[i] = vk.DescriptorSetLayoutBinding {
+			binding         = binding.binding,
+			descriptorType  = binding.type,
 			descriptorCount = 1,
 			stageFlags      = stage_flags,
 		}
@@ -318,9 +336,16 @@ create_pipeline_layout :: proc(
 	layout: vk.DescriptorSetLayout
 	VK_CHECK(
 		vk.CreateDescriptorSetLayout(r.device, &layout_info, nil, &layout),
-		fmt.tprintf("vkCreateDescriptorSetLayout(%s)", shader_name),
+		"vkCreateDescriptorSetLayout",
 	)
+	return layout
+}
 
+create_pipeline_layout :: proc(
+	r: ^Renderer,
+	descriptor_layout: vk.DescriptorSetLayout,
+) -> vk.PipelineLayout {
+	layout := descriptor_layout
 	pipeline_layout_info := vk.PipelineLayoutCreateInfo {
 		sType          = .PIPELINE_LAYOUT_CREATE_INFO,
 		setLayoutCount = 1,
@@ -329,23 +354,24 @@ create_pipeline_layout :: proc(
 	pipeline_layout: vk.PipelineLayout
 	VK_CHECK(
 		vk.CreatePipelineLayout(r.device, &pipeline_layout_info, nil, &pipeline_layout),
-		fmt.tprintf("vkCreatePipelineLayout(%s)", shader_name),
+		"vkCreatePipelineLayout",
 	)
 	return pipeline_layout
 }
 
 create_compute_pipeline :: proc(
-	r: ^vulkan_renderer,
+	r: ^Renderer,
+	shader_module: vk.ShaderModule,
 	entry_point: string,
-	shader_name: string,
 	pipeline_layout: vk.PipelineLayout,
 ) -> vk.Pipeline {
-	module := utils.load_shader_bytes(shader_name)
+	entry_point_c := strings.clone_to_cstring(entry_point)
+	defer delete(entry_point_c)
 	stage := vk.PipelineShaderStageCreateInfo {
 		sType  = .PIPELINE_SHADER_STAGE_CREATE_INFO,
 		stage  = {.COMPUTE},
-		module = create_shader_module(module), //TODO: Cache them and destroy too
-		pName  = strings.clone_to_cstring(entry_point),
+		module = shader_module,
+		pName  = entry_point_c,
 	}
 	pipeline_info := vk.ComputePipelineCreateInfo {
 		sType  = .COMPUTE_PIPELINE_CREATE_INFO,
@@ -355,20 +381,33 @@ create_compute_pipeline :: proc(
 	pipeline: vk.Pipeline
 	VK_CHECK(
 		vk.CreateComputePipelines(r.device, {}, 1, &pipeline_info, nil, &pipeline),
-		fmt.tprintf("vkCreateComputePipelines(%s)", shader_name),
+		"vkCreateComputePipelines",
 	)
 	return pipeline
 }
 
-destroy_buffer :: proc(r: ^vulkan_renderer, buffer: ^vulkan_buffer) {
-	if buffer.buffer != {} {
-		vk.DestroyBuffer(r.device, buffer.buffer, nil)
-		buffer.buffer = {}
+destroy_buffer :: proc(r: ^Renderer, buffer: ^Buffer) {
+	if buffer.buffer == {} {
+		return
 	}
 	vma.DestroyBuffer(r.allocator_vma, buffer.buffer, buffer.allocation)
+	buffer^ = {}
 }
 
-write_buffer :: proc(r: ^vulkan_renderer, buffer: ^vulkan_buffer, data: rawptr, size: int) { 	//TODO: Figure out if this actually does anything
+destroy_image :: proc(r: ^Renderer, image: ^Image) {
+	if image.sampler != {} {
+		vk.DestroySampler(r.device, image.sampler, nil)
+	}
+	if image.view != {} {
+		vk.DestroyImageView(r.device, image.view, nil)
+	}
+	if image.image != {} {
+		vma.DestroyImage(r.allocator_vma, image.image, image.allocation)
+	}
+	image^ = {}
+}
+
+write_buffer :: proc(r: ^Renderer, buffer: ^Buffer, data: rawptr, size: int) {
 	if size <= 0 {
 		return
 	}
@@ -388,47 +427,16 @@ get_gpu_address :: proc(device: vk.Device, buffer: vk.Buffer) -> vk.DeviceAddres
 }
 
 
-allocate_descriptor_set :: proc(
-	r: ^vulkan_renderer,
-	shader_name: string,
-	stage_flags: vk.ShaderStageFlags,
-	bindings: []struct {
-		binding: u32,
-		type:    vk.DescriptorType,
-	},
-) -> vk.DescriptorSet {
-	layout_bindings := make([]vk.DescriptorSetLayoutBinding, len(bindings), context.allocator)
-	defer delete(layout_bindings)
-	for i, b in bindings {
-		layout_bindings[b] = vk.DescriptorSetLayoutBinding {
-			binding         = i.binding,
-			descriptorType  = i.type,
-			descriptorCount = 1,
-			stageFlags      = stage_flags,
-		}
-	}
-	layout_info := vk.DescriptorSetLayoutCreateInfo {
-		sType        = .DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-		bindingCount = u32(len(layout_bindings)),
-		pBindings    = raw_data(layout_bindings),
-	}
-	layout: vk.DescriptorSetLayout
-	VK_CHECK(
-		vk.CreateDescriptorSetLayout(r.device, &layout_info, nil, &layout),
-		fmt.tprintf("vkCreateDescriptorSetLayout(%s)", shader_name),
-	)
-
+allocate_descriptor_set :: proc(r: ^Renderer, layout: vk.DescriptorSetLayout) -> vk.DescriptorSet {
+	layout_copy := layout
 	alloc_info := vk.DescriptorSetAllocateInfo {
 		sType              = .DESCRIPTOR_SET_ALLOCATE_INFO,
 		descriptorPool     = r.descriptor_pool,
 		descriptorSetCount = 1,
-		pSetLayouts        = &layout,
+		pSetLayouts        = &layout_copy,
 	}
 	set: vk.DescriptorSet
-	VK_CHECK(
-		vk.AllocateDescriptorSets(r.device, &alloc_info, &set),
-		fmt.tprintf("vkAllocateDescriptorSets(%s)", shader_name),
-	)
+	VK_CHECK(vk.AllocateDescriptorSets(r.device, &alloc_info, &set), "vkAllocateDescriptorSets")
 	return set
 }
 
@@ -441,7 +449,7 @@ set_scissor :: proc(command_buffer: vk.CommandBuffer, x, y, w, h: u32) {
 }
 
 create_image :: proc(
-	r: ^vulkan_renderer,
+	r: ^Renderer,
 	width, height: u32,
 	format: vk.Format,
 	usage: vk.ImageUsageFlags,
@@ -486,7 +494,7 @@ create_image :: proc(
 	return image, vma_allocation
 }
 
-begin_single_use_commands :: proc(r: ^vulkan_renderer) -> vk.CommandBuffer {
+begin_single_use_commands :: proc(r: ^Renderer) -> vk.CommandBuffer {
 	alloc_info := vk.CommandBufferAllocateInfo {
 		sType              = .COMMAND_BUFFER_ALLOCATE_INFO,
 		commandPool        = r.command_pool,
@@ -509,7 +517,7 @@ begin_single_use_commands :: proc(r: ^vulkan_renderer) -> vk.CommandBuffer {
 	return command_buffer
 }
 
-end_single_use_commands :: proc(r: ^vulkan_renderer, command_buffer: vk.CommandBuffer) {
+end_single_use_commands :: proc(r: ^Renderer, command_buffer: vk.CommandBuffer) {
 	VK_CHECK(vk.EndCommandBuffer(command_buffer), "vkEndCommandBuffer(single-use)")
 	cmd := command_buffer
 	submit_info := vk.SubmitInfo {
@@ -523,7 +531,7 @@ end_single_use_commands :: proc(r: ^vulkan_renderer, command_buffer: vk.CommandB
 }
 
 transition_image_layout :: proc(
-	r: ^vulkan_renderer,
+	r: ^Renderer,
 	image: vk.Image,
 	old_layout, new_layout: vk.ImageLayout,
 ) {
@@ -563,7 +571,7 @@ transition_image_layout :: proc(
 }
 
 copy_buffer_to_image :: proc(
-	r: ^vulkan_renderer,
+	r: ^Renderer,
 	buffer: vk.Buffer,
 	image: vk.Image,
 	width, height: u32,
