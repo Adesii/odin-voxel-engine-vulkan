@@ -3,6 +3,7 @@ package delta_core
 import shader_assets "../../engine/render/shader_assets"
 import terrain_renderer "../../engine/render/terrain"
 import vulkan "../../engine/render/vulkan"
+import voxel_terrain "../../engine/terrain/voxel"
 import shader_tools "../../engine/tools/shader"
 import ui "../../engine/ui/microui"
 import view "../../engine/view"
@@ -14,16 +15,18 @@ import sdl "vendor:sdl3"
 import vk "vendor:vulkan"
 
 Game :: struct {
-	window:          ^sdl.Window,
-	renderer:        vulkan.Renderer,
-	ui:              ui.Context,
-	terrain_render:  terrain_renderer.Context,
-	camera:          view.Camera,
-	world:           World,
-	debug_mode:      terrain_renderer.Debug_Mode,
-	show_world_plan: bool,
-	held_keys:       map[sdl.Keycode]bool,
-	shader_watchers: shader_tools.Watcher_Set,
+	window:              ^sdl.Window,
+	renderer:            vulkan.Renderer,
+	ui:                  ui.Context,
+	terrain_render:      terrain_renderer.Context,
+	camera:              view.Camera,
+	world:               World,
+	debug_mode:          terrain_renderer.Debug_Mode,
+	show_world_plan:     bool,
+	held_keys:           map[sdl.Keycode]bool,
+	shader_watchers:     shader_tools.Watcher_Set,
+	last_mined_material: Material,
+	mined_resources:     [len(MATERIAL_DEFINITIONS)]u32,
 }
 
 run :: proc() {
@@ -67,8 +70,8 @@ initialize :: proc(game: ^Game) {
 	}
 	game.window = sdl.CreateWindow(
 		"Delta Core",
-		1024,
-		1024,
+		800,
+		800,
 		{.RESIZABLE, .HIGH_PIXEL_DENSITY, .VULKAN},
 	)
 	if game.window == nil {
@@ -95,8 +98,9 @@ initialize :: proc(game: ^Game) {
 
 	game.camera.position = spawn_camera_position(&game.world)
 	view.rotate(&game.camera, 0, 140)
+	stream_world(&game.world, game.camera.position)
 	game.held_keys = make(map[sdl.Keycode]bool)
-	game.show_world_plan = true
+	game.show_world_plan = false
 	if !sdl.SetWindowRelativeMouseMode(game.window, true) {
 		fmt.eprintf("Failed to set relative mouse mode: %v\n", sdl.GetError())
 	}
@@ -171,12 +175,33 @@ run_loop :: proc(game: ^Game) {
 				game.held_keys[event.key.key] = false
 			case .MOUSE_MOTION:
 				view.rotate(&game.camera, f32(event.motion.xrel), f32(event.motion.yrel))
+			case .MOUSE_BUTTON_DOWN:
+				if event.button.button == sdl.BUTTON_LEFT {
+					edit_crosshair_voxel(game, false)
+				} else if event.button.button == sdl.BUTTON_RIGHT {
+					edit_crosshair_voxel(game, true)
+				}
 			}
 		}
 		shader_tools.check_file_watchers(&game.shader_watchers)
 
 		if elapsed_ms >= 1000 {
 			last_fps = 1000.0 * f64(frame_count) / elapsed_ms
+			stats := game.world.voxels.stats
+			fmt.printf(
+				"Voxel stats: fps=%.1f chunks=%v pending=%v bricks=%v/%v/%v detailed=%v generation=%.2fms CPU=%.2fMiB GPU=%.2fMiB edits=%v\n",
+				last_fps,
+				stats.resident_chunks,
+				stats.pending_chunks,
+				stats.empty_bricks,
+				stats.solid_bricks,
+				stats.mixed_bricks,
+				stats.detailed_voxels,
+				stats.generation_ms,
+				f64(stats.resident_bytes) / (1024 * 1024),
+				f64(stats.gpu_bytes) / (1024 * 1024),
+				stats.persistent_edits,
+			)
 			elapsed_ms = 0
 			frame_count = 0
 		}
@@ -185,11 +210,15 @@ run_loop :: proc(game: ^Game) {
 		build_ui(game, last_fps)
 
 		config := game.world.terrain.config
+		render_materials := voxel_render_materials()
 		frame_input := terrain_renderer.Frame_Input {
 			renderer          = &game.terrain_render,
 			camera            = game.camera,
 			cache             = &game.world.cache,
 			overrides         = &game.world.modifications,
+			voxels            = &game.world.voxels,
+			materials         = render_materials[:],
+			visual_seed       = config.seed,
 			world_radius      = config.world_radius,
 			max_distance      = config.render_distance,
 			debug_mode        = game.debug_mode,
@@ -198,7 +227,7 @@ run_loop :: proc(game: ^Game) {
 		vulkan.frame(
 			&game.renderer,
 			{
-				source_image = terrain_renderer.output_image(&game.terrain_render),
+				source_image = terrain_renderer.output_image(&game.terrain_render, &game.renderer),
 				content_data = &frame_input,
 				record_content = terrain_renderer.record_frame,
 				overlay_data = &game.ui,
@@ -220,19 +249,22 @@ build_ui :: proc(game: ^Game, fps: f64) {
 	mu.begin_window(
 		ctx,
 		"Runtime",
-		{h = 112, w = 260, x = 0, y = 0},
+		{h = 150, w = 330, x = 0, y = 0},
 		mu.Options{.NO_SCROLL, .NO_INTERACT, .NO_FRAME, .NO_RESIZE, .NO_TITLE, .NO_CLOSE},
 	)
 	mu.text(ctx, fmt.tprintf("FPS: %.2f", fps))
 	mu.text(ctx, fmt.tprintf("Debug: %v (F1)", game.debug_mode))
-	mu.text(ctx, "World Plan: F2")
+	mu.text(ctx, "LMB mine / RMB place / F2 world plan")
+	if game.last_mined_material != .AIR {
+		mu.text(ctx, fmt.tprintf("Last mined: %v", game.last_mined_material))
+	}
 	mu.end_window(ctx)
 	build_world_debug_ui(game, ctx)
 	mu.end(ctx)
 }
 
 update_camera :: proc(game: ^Game, dt_ms: f32) {
-	speed := 100.0 * dt_ms / 1000.0
+	speed := 12.0 * dt_ms / 1000.0
 	if game.held_keys[sdl.K_LSHIFT] {
 		speed *= 5
 	}
@@ -266,6 +298,47 @@ update_camera :: proc(game: ^Game, dt_ms: f32) {
 	}
 	aspect_ratio := f32(game.renderer.extent.width) / f32(game.renderer.extent.height)
 	view.update_matrices(&game.camera, aspect_ratio)
+}
+
+edit_crosshair_voxel :: proc(game: ^Game, place: bool) {
+	config := game.world.terrain.config
+	hit := voxel_terrain.raycast(
+		&game.world.voxels,
+		game.camera.position,
+		view.forward(game.camera),
+		config.voxel_render_radius,
+	)
+	if !hit.hit {
+		return
+	}
+	if place {
+		voxel_terrain.set_material(
+			&game.world.voxels,
+			&game.world.modifications,
+			hit.previous_voxel,
+			material_id(.PLAYER_SOLID),
+		)
+		fmt.printf("Placed %v at %v\n", Material.PLAYER_SOLID, hit.previous_voxel)
+		return
+	}
+	material := material_from_id(hit.material)
+	definition := material_definition(hit.material)
+	game.last_mined_material = material
+	if definition.resource_yield > 0 {
+		game.mined_resources[int(material)] += definition.resource_yield
+	}
+	voxel_terrain.set_material(
+		&game.world.voxels,
+		&game.world.modifications,
+		hit.voxel,
+		voxel_terrain.AIR,
+	)
+	fmt.printf(
+		"Mined %v voxel at %v; resource total=%v\n",
+		material,
+		hit.voxel,
+		game.mined_resources[int(material)],
+	)
 }
 
 shutdown :: proc(game: ^Game) {

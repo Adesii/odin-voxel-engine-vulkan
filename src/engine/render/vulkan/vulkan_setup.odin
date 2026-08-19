@@ -112,7 +112,6 @@ create_instance :: proc(r: ^Renderer, config: Renderer_Config) {
 			pEnabledValidationFeatures    = &enabled_features[0],
 		}
 		create_info.pNext = &validation_features
-
 	}
 	VK_CHECK(vk.CreateInstance(&create_info, nil, &r.instance), "vkCreateInstance")
 	vk.load_proc_addresses_instance(r.instance)
@@ -290,6 +289,14 @@ create_device :: proc(r: ^Renderer) {
 		}
 		queue_info_count = 2
 	}
+	available_features: vk.PhysicalDeviceFeatures
+	vk.GetPhysicalDeviceFeatures(r.physical_device, &available_features)
+	if !available_features.robustBufferAccess ||
+	   !available_features.shaderInt64 ||
+	   !available_features.shaderStorageImageReadWithoutFormat ||
+	   !available_features.shaderStorageImageWriteWithoutFormat {
+		fmt.panicf("Selected Vulkan device lacks required terrain compute features")
+	}
 	// 1. Core 1.2 Features Setup
 	vulkan12_features := vk.PhysicalDeviceVulkan12Features {
 		sType               = .PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
@@ -307,7 +314,12 @@ create_device :: proc(r: ^Renderer) {
 	// 3. Core 1.0 Features Container (Replaces old pEnabledFeatures pointer)
 	features2 := vk.PhysicalDeviceFeatures2 {
 		sType = .PHYSICAL_DEVICE_FEATURES_2,
-		features = {shaderInt64 = true},
+		features = {
+			robustBufferAccess = true,
+			shaderInt64 = true,
+			shaderStorageImageReadWithoutFormat = true,
+			shaderStorageImageWriteWithoutFormat = true,
+		},
 		pNext = &vulkan11_features, // Points forward to 1.1 features
 	}
 	when ODIN_DEBUG {
@@ -315,9 +327,6 @@ create_device :: proc(r: ^Renderer) {
 		features2.features.fragmentStoresAndAtomics = true
 		features2.features.shaderInt16 = true
 		features2.features.shaderInt64 = true
-		// needed for compute raymarching output
-		features2.features.shaderStorageImageReadWithoutFormat = true
-		features2.features.shaderStorageImageWriteWithoutFormat = true
 	}
 	extension_array := [2]cstring {
 		cstring(vk.KHR_SWAPCHAIN_EXTENSION_NAME),

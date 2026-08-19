@@ -1,6 +1,8 @@
 package delta_core
 
 import sparse "../../engine/terrain/sparse"
+import voxel_terrain "../../engine/terrain/voxel"
+import "core:math"
 import "core:os"
 import "core:testing"
 
@@ -103,4 +105,109 @@ world_persistence_round_trip :: proc(t: ^testing.T) {
 		sparse.get(&loaded_modifications, {22, 31, -5}),
 		sparse.Voxel_Override{state = .FORCE_SOLID, material = 7},
 	)
+}
+
+@(test)
+coherent_ore_vein_reconstructs_from_world_seed :: proc(t: ^testing.T) {
+	config := default_world_config(.SMALL, 0x1234_5678)
+	plan, generated := generate_world_plan(config)
+	if !testing.expect(t, generated) {
+		return
+	}
+	terrain := Natural_Terrain {
+		config = config,
+		plan   = plan,
+	}
+	defer destroy_world_plan(&terrain.plan)
+	initialize_voxel_geology(&terrain)
+	start := terrain.ore_vein_start
+	end := terrain.ore_vein_end
+	iron_samples := 0
+	underground_samples := 0
+	for index in 1 ..= 20 {
+		amount := f32(index) / 20
+		position := start + (end - start) * amount
+		column := voxel_column_sample(&terrain, position.x, position.z)
+		position.y = min(position.y, column.surface_height - 0.25)
+		first := voxel_natural_sample(&terrain, {}, position, column)
+		second := voxel_natural_sample(&terrain, {}, position, column)
+		testing.expect_value(t, first, second)
+		if first == material_id(.IRON_ORE) {
+			iron_samples += 1
+			if column.surface_height - position.y > 8 {
+				underground_samples += 1
+			}
+		}
+	}
+	testing.expect(t, iron_samples >= 16, "guaranteed vein was not spatially coherent")
+	testing.expect(t, underground_samples >= 6, "guaranteed vein did not extend underground")
+
+	exposure_position := start
+	exposure_column := voxel_column_sample(&terrain, exposure_position.x, exposure_position.z)
+	exposure_position.y = exposure_column.surface_height - 0.125
+	testing.expect_value(
+		t,
+		voxel_natural_sample(&terrain, {}, exposure_position, exposure_column),
+		material_id(.IRON_ORE),
+	)
+}
+
+@(test)
+mined_ore_depletion_survives_save_and_regeneration :: proc(t: ^testing.T) {
+	if !os.is_dir("saves") {
+		testing.expect(t, os.make_directory_all("saves") == nil)
+	}
+	path := "saves/delta_core_depletion_test.world"
+	defer os.remove(path)
+	config := default_world_config(.SMALL, 0x1234_5678)
+	plan, generated := generate_world_plan(config)
+	if !testing.expect(t, generated) {
+		return
+	}
+	terrain := Natural_Terrain {
+		config = config,
+		plan   = plan,
+	}
+	initialize_voxel_geology(&terrain)
+	modifications: sparse.World
+	testing.expect(t, sparse.init(&modifications, config.base_voxel_size))
+
+	position := terrain.ore_vein_start
+	column := voxel_column_sample(&terrain, position.x, position.z)
+	position.y = column.surface_height - 0.125
+	voxel := [3]i32 {
+		i32(math.floor(position.x / config.base_voxel_size)),
+		i32(math.floor(position.y / config.base_voxel_size)),
+		i32(math.floor(position.z / config.base_voxel_size)),
+	}
+	testing.expect_value(
+		t,
+		voxel_natural_sample(&terrain, voxel, position, column),
+		material_id(.IRON_ORE),
+	)
+	sparse.set(&modifications, voxel, .FORCE_EMPTY)
+	testing.expect(t, save_world_data(path, &terrain, &modifications))
+	sparse.destroy(&modifications)
+	destroy_world_plan(&terrain.plan)
+
+	loaded_terrain, loaded_modifications, loaded := load_world_data(path)
+	if !testing.expect(t, loaded) {
+		return
+	}
+	defer destroy_world_plan(&loaded_terrain.plan)
+	defer sparse.destroy(&loaded_modifications)
+	initialize_voxel_geology(&loaded_terrain)
+	resident: voxel_terrain.World
+	resident_config := voxel_config(loaded_terrain.config)
+	resident_config.residency_radius = 12
+	resident_config.render_radius = 8
+	resident_config.transition_width = 2
+	resident_config.generation_depth = 8
+	resident_config.generation_height_above_surface = 4
+	resident_config.max_chunks_per_update = 1_000
+	testing.expect(t, voxel_terrain.init(&resident, resident_config))
+	defer voxel_terrain.destroy(&resident)
+	voxel_terrain.update(&resident, position, voxel_source(&loaded_terrain), &loaded_modifications)
+	testing.expect_value(t, voxel_terrain.material_at(&resident, voxel), voxel_terrain.AIR)
+	testing.expect_value(t, loaded_modifications.modified_count, 1)
 }

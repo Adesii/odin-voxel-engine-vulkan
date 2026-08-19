@@ -2,6 +2,7 @@ package delta_core
 
 import heightfield "../../engine/terrain/heightfield"
 import sparse "../../engine/terrain/sparse"
+import voxel_terrain "../../engine/terrain/voxel"
 import "core:fmt"
 import "core:math"
 import "core:os"
@@ -12,40 +13,10 @@ World :: struct {
 	terrain:          Natural_Terrain,
 	cache:            heightfield.Cache,
 	modifications:    sparse.World,
+	voxels:           voxel_terrain.World,
 	loaded_from_disk: bool,
 }
 
-create_demo_modifications :: proc(world: ^World) {
-	voxel_size := world.modifications.voxel_size
-	// A carved shaft proves that procedural solidity can be overridden without
-	// materializing the surrounding terrain.
-	for x in -3 ..= 3 {
-		for z in -3 ..= 3 {
-			world_x := f32(x) * voxel_size + 30
-			world_z := f32(z) * voxel_size
-			surface := sample_natural_terrain(&world.terrain, world_x, world_z).height
-			for y in -5 ..= 3 {
-				position := [3]f32{world_x, surface + f32(y) * voxel_size, world_z}
-				sparse.set_world_position(&world.modifications, position, .FORCE_EMPTY)
-			}
-		}
-	}
-	// A detached solid block proves the inverse override above the heightfield.
-	block_center := [2]f32{55, 12}
-	block_surface := sample_natural_terrain(&world.terrain, block_center.x, block_center.y).height
-	for x in -2 ..= 2 {
-		for y in 0 ..= 4 {
-			for z in -2 ..= 2 {
-				position := [3]f32 {
-					block_center.x + f32(x) * voxel_size,
-					block_surface + 8 + f32(y) * voxel_size,
-					block_center.y + f32(z) * voxel_size,
-				}
-				sparse.set_world_position(&world.modifications, position, .FORCE_SOLID, 1)
-			}
-		}
-	}
-}
 
 world_fingerprint :: proc(world: ^World) -> u64 {
 	fingerprint := mix_u64(
@@ -82,7 +53,6 @@ initialize_world :: proc(world: ^World, config: World_Config) -> bool {
 			destroy_world_plan(&world.terrain.plan)
 			return false
 		}
-		create_demo_modifications(world)
 		if !os.is_dir("saves") && os.make_directory_all("saves") != nil {
 			sparse.destroy(&world.modifications)
 			destroy_world_plan(&world.terrain.plan)
@@ -94,6 +64,7 @@ initialize_world :: proc(world: ^World, config: World_Config) -> bool {
 			return false
 		}
 	}
+	initialize_voxel_geology(&world.terrain)
 	cache_config := heightfield.Cache_Config {
 		level_count             = 3,
 		sample_count            = world.terrain.config.cache_sample_count,
@@ -101,6 +72,12 @@ initialize_world :: proc(world: ^World, config: World_Config) -> bool {
 		recenter_interval_cells = 16,
 	}
 	if !heightfield.init(&world.cache, cache_config) {
+		sparse.destroy(&world.modifications)
+		destroy_world_plan(&world.terrain.plan)
+		return false
+	}
+	if !voxel_terrain.init(&world.voxels, voxel_config(world.terrain.config)) {
+		heightfield.destroy(&world.cache)
 		sparse.destroy(&world.modifications)
 		destroy_world_plan(&world.terrain.plan)
 		return false
@@ -121,11 +98,18 @@ initialize_world :: proc(world: ^World, config: World_Config) -> bool {
 }
 
 stream_world :: proc(world: ^World, camera_position: [3]f32) -> bool {
-	return heightfield.update(
+	cache_changed := heightfield.update(
 		&world.cache,
 		heightfield_source(&world.terrain),
 		{camera_position.x, camera_position.z},
 	)
+	voxel_terrain.update(
+		&world.voxels,
+		camera_position,
+		voxel_source(&world.terrain),
+		&world.modifications,
+	)
+	return cache_changed
 }
 
 save_world :: proc(world: ^World) -> bool {
@@ -133,6 +117,7 @@ save_world :: proc(world: ^World) -> bool {
 }
 
 destroy_world :: proc(world: ^World) {
+	voxel_terrain.destroy(&world.voxels)
 	heightfield.destroy(&world.cache)
 	sparse.destroy(&world.modifications)
 	destroy_world_plan(&world.terrain.plan)
@@ -141,8 +126,9 @@ destroy_world :: proc(world: ^World) {
 
 spawn_camera_position :: proc(world: ^World) -> [3]f32 {
 	spawn := world.terrain.plan.spawn
-	height := sample_natural_terrain(&world.terrain, spawn.x, spawn.y).height
-	return {spawn.x - 120, height + 65, spawn.y}
+	position := spawn + [2]f32{-10, 4}
+	height := sample_natural_terrain(&world.terrain, position.x, position.y).height
+	return {position.x, height + 8, position.y}
 }
 
 biome_at_camera :: proc(world: ^World, position: [3]f32) -> Biome {

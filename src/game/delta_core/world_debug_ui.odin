@@ -113,11 +113,45 @@ draw_world_plan_map :: proc(game: ^Game, ctx: ^mu.Context, rect: mu.Rect) {
 	)
 }
 
+draw_voxel_residency_map :: proc(game: ^Game, ctx: ^mu.Context, rect: mu.Rect) {
+	mu.draw_rect(ctx, rect, {10, 12, 16, 255})
+	config := game.world.terrain.config
+	radius := config.voxel_residency_radius
+	chunk_size := f32(32) * config.base_voxel_size
+	camera_xz := [2]f32{game.camera.position.x, game.camera.position.z}
+	for coord in game.world.voxels.chunks {
+		center := [2]f32{(f32(coord.x) + 0.5) * chunk_size, (f32(coord.z) + 0.5) * chunk_size}
+		point := world_to_map(center - camera_xz, radius, rect)
+		mu.draw_rect(ctx, {x = point.x - 1, y = point.y - 1, w = 3, h = 3}, {31, 153, 219, 90})
+	}
+	for index in 0 ..< 64 {
+		angle := f32(index) / 64 * math.TAU
+		point := world_to_map({math.cos(angle) * radius, math.sin(angle) * radius}, radius, rect)
+		mu.draw_rect(ctx, {x = point.x, y = point.y, w = 2, h = 2}, {75, 220, 250, 255})
+	}
+	for index in 0 ..= 32 {
+		amount := f32(index) / 32
+		start := game.world.terrain.ore_vein_start
+		end := game.world.terrain.ore_vein_end
+		position := [2]f32 {
+			start.x + (end.x - start.x) * amount,
+			start.z + (end.z - start.z) * amount,
+		}
+		point := world_to_map(position - camera_xz, radius, rect)
+		mu.draw_rect(ctx, {x = point.x - 1, y = point.y - 1, w = 3, h = 3}, {255, 132, 38, 255})
+	}
+	mu.draw_rect(
+		ctx,
+		{x = rect.x + rect.w / 2 - 2, y = rect.y + rect.h / 2 - 2, w = 5, h = 5},
+		{255, 255, 255, 255},
+	)
+}
+
 build_world_debug_ui :: proc(game: ^Game, ctx: ^mu.Context) {
 	if !game.show_world_plan {
 		return
 	}
-	if !mu.begin_window(ctx, "World Plan", {x = 8, y = 116, w = 440, h = 850}) {
+	if !mu.begin_window(ctx, "World / Voxels", {x = 8, y = 154, w = 440, h = 850}) {
 		return
 	}
 	config := game.world.terrain.config
@@ -178,6 +212,68 @@ build_world_debug_ui :: proc(game: ^Game, ctx: ^mu.Context) {
 			),
 		)
 	}
+	stats := game.world.voxels.stats
+	mu.text(
+		ctx,
+		fmt.tprintf(
+			"voxel %.2fm resident %.0fm render %.0fm overlap %.0fm",
+			config.base_voxel_size,
+			config.voxel_residency_radius,
+			config.voxel_render_radius,
+			config.voxel_transition_width,
+		),
+	)
+	mu.text(
+		ctx,
+		fmt.tprintf(
+			"chunks %v pending %v +%v/-%v",
+			stats.resident_chunks,
+			stats.pending_chunks,
+			stats.generated_this_frame,
+			stats.evicted_this_frame,
+		),
+	)
+	mu.text(
+		ctx,
+		fmt.tprintf(
+			"bricks E/S/M %v / %v / %v",
+			stats.empty_bricks,
+			stats.solid_bricks,
+			stats.mixed_bricks,
+		),
+	)
+	mu.text(
+		ctx,
+		fmt.tprintf(
+			"detailed=%v CPU=%.2f MiB GPU=%.2f MiB",
+			stats.detailed_voxels,
+			f64(stats.resident_bytes) / (1024 * 1024),
+			f64(stats.gpu_bytes) / (1024 * 1024),
+		),
+	)
+	mu.text(
+		ctx,
+		fmt.tprintf(
+			"generation %.2fms frame / %.2fms last",
+			stats.generation_ms,
+			stats.last_generation_ms,
+		),
+	)
+	mu.text(
+		ctx,
+		fmt.tprintf(
+			"iron=%v copper=%v edits=%v",
+			stats.material_counts[int(Material.IRON_ORE)],
+			stats.material_counts[int(Material.COPPER_ORE)],
+			stats.persistent_edits,
+		),
+	)
+	mu.text(ctx, fmt.tprintf("far terrain %.0fkm", config.render_distance / 1000))
+	mu.layout_row(ctx, {-1}, 180)
+	voxel_map_rect := mu.layout_next(ctx)
+	draw_voxel_residency_map(game, ctx, voxel_map_rect)
+	mu.text(ctx, "Local: cyan resident chunks, orange ore vein")
+
 	mu.text(
 		ctx,
 		fmt.tprintf(
@@ -186,7 +282,7 @@ build_world_debug_ui :: proc(game: ^Game, ctx: ^mu.Context) {
 			game.world.modifications.modified_count,
 		),
 	)
-	mu.layout_row(ctx, {-1}, 330)
+	mu.layout_row(ctx, {-1}, 240)
 	map_rect := mu.layout_next(ctx)
 	draw_world_plan_map(game, ctx, map_rect)
 	mu.end_window(ctx)

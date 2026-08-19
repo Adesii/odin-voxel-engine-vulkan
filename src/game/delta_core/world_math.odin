@@ -26,6 +26,11 @@ hash_grid_01 :: proc(seed: u64, x, z: i32) -> f32 {
 	return random_01(seed ~ key, 0)
 }
 
+hash_grid_3d_01 :: proc(seed: u64, x, y, z: i32) -> f32 {
+	key := u64(u32(x)) * 73_856_093 ~ u64(u32(y)) * 19_349_663 ~ u64(u32(z)) * 83_492_791
+	return random_01(seed ~ key, 0)
+}
+
 smooth_curve :: proc(value: f32) -> f32 {
 	value := clamp(value, f32(0), f32(1))
 	return value * value * (3 - 2 * value)
@@ -52,6 +57,49 @@ value_noise_2d :: proc(seed: u64, x, z: f32) -> f32 {
 	c := hash_grid_01(seed, x0, z0 + 1)
 	d := hash_grid_01(seed, x0 + 1, z0 + 1)
 	return lerp_f32(lerp_f32(a, b, tx), lerp_f32(c, d, tx), tz)
+}
+
+value_noise_3d :: proc(seed: u64, x, y, z: f32) -> f32 {
+	x0 := i32(math.floor(x))
+	y0 := i32(math.floor(y))
+	z0 := i32(math.floor(z))
+	tx := smooth_curve(x - f32(x0))
+	ty := smooth_curve(y - f32(y0))
+	tz := smooth_curve(z - f32(z0))
+	c000 := hash_grid_3d_01(seed, x0, y0, z0)
+	c100 := hash_grid_3d_01(seed, x0 + 1, y0, z0)
+	c010 := hash_grid_3d_01(seed, x0, y0 + 1, z0)
+	c110 := hash_grid_3d_01(seed, x0 + 1, y0 + 1, z0)
+	c001 := hash_grid_3d_01(seed, x0, y0, z0 + 1)
+	c101 := hash_grid_3d_01(seed, x0 + 1, y0, z0 + 1)
+	c011 := hash_grid_3d_01(seed, x0, y0 + 1, z0 + 1)
+	c111 := hash_grid_3d_01(seed, x0 + 1, y0 + 1, z0 + 1)
+	z00 := lerp_f32(c000, c100, tx)
+	z10 := lerp_f32(c010, c110, tx)
+	z01 := lerp_f32(c001, c101, tx)
+	z11 := lerp_f32(c011, c111, tx)
+	return lerp_f32(lerp_f32(z00, z10, ty), lerp_f32(z01, z11, ty), tz)
+}
+
+fbm_3d :: proc(seed: u64, x, y, z: f32, octaves: int = 3) -> f32 {
+	value: f32
+	amplitude: f32 = 0.5
+	frequency: f32 = 1
+	normalization: f32
+	for octave in 0 ..< octaves {
+		value +=
+			value_noise_3d(
+				derive_seed(seed, u64(octave)),
+				x * frequency,
+				y * frequency,
+				z * frequency,
+			) *
+			amplitude
+		normalization += amplitude
+		frequency *= 2
+		amplitude *= 0.5
+	}
+	return value / normalization
 }
 
 fbm_2d :: proc(seed: u64, x, z: f32, octaves: int = 3) -> f32 {

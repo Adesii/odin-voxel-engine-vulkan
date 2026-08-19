@@ -50,7 +50,7 @@
         },
         {
             "name": "g_settings",
-            "binding": {"kind": "uniform", "offset": 144, "size": 80, "elementStride": 0},
+            "binding": {"kind": "uniform", "offset": 144, "size": 112, "elementStride": 0},
             "type": {
                 "kind": "struct",
                 "name": "TerrainSettings",
@@ -112,12 +112,76 @@
                         "binding": {"kind": "uniform", "offset": 24, "size": 4, "elementStride": 0}
                     },
                     {
-                        "name": "_padding0",
+                        "name": "voxelSize",
                         "type": {
                             "kind": "scalar",
                             "scalarType": "float32"
                         },
                         "binding": {"kind": "uniform", "offset": 28, "size": 4, "elementStride": 0}
+                    },
+                    {
+                        "name": "voxelRenderRadius",
+                        "type": {
+                            "kind": "scalar",
+                            "scalarType": "float32"
+                        },
+                        "binding": {"kind": "uniform", "offset": 32, "size": 4, "elementStride": 0}
+                    },
+                    {
+                        "name": "voxelTransitionWidth",
+                        "type": {
+                            "kind": "scalar",
+                            "scalarType": "float32"
+                        },
+                        "binding": {"kind": "uniform", "offset": 36, "size": 4, "elementStride": 0}
+                    },
+                    {
+                        "name": "chunkWorldSize",
+                        "type": {
+                            "kind": "scalar",
+                            "scalarType": "float32"
+                        },
+                        "binding": {"kind": "uniform", "offset": 40, "size": 4, "elementStride": 0}
+                    },
+                    {
+                        "name": "chunkTableMask",
+                        "type": {
+                            "kind": "scalar",
+                            "scalarType": "uint32"
+                        },
+                        "binding": {"kind": "uniform", "offset": 44, "size": 4, "elementStride": 0}
+                    },
+                    {
+                        "name": "chunkCount",
+                        "type": {
+                            "kind": "scalar",
+                            "scalarType": "uint32"
+                        },
+                        "binding": {"kind": "uniform", "offset": 48, "size": 4, "elementStride": 0}
+                    },
+                    {
+                        "name": "materialCount",
+                        "type": {
+                            "kind": "scalar",
+                            "scalarType": "uint32"
+                        },
+                        "binding": {"kind": "uniform", "offset": 52, "size": 4, "elementStride": 0}
+                    },
+                    {
+                        "name": "visualSeedLo",
+                        "type": {
+                            "kind": "scalar",
+                            "scalarType": "uint32"
+                        },
+                        "binding": {"kind": "uniform", "offset": 56, "size": 4, "elementStride": 0}
+                    },
+                    {
+                        "name": "visualSeedHi",
+                        "type": {
+                            "kind": "scalar",
+                            "scalarType": "uint32"
+                        },
+                        "binding": {"kind": "uniform", "offset": 60, "size": 4, "elementStride": 0}
                     },
                     {
                         "name": "lodDistances",
@@ -129,7 +193,7 @@
                                 "scalarType": "float32"
                             }
                         },
-                        "binding": {"kind": "uniform", "offset": 32, "size": 16, "elementStride": 4}
+                        "binding": {"kind": "uniform", "offset": 64, "size": 16, "elementStride": 4}
                     },
                     {
                         "name": "overrideBoundsMin",
@@ -141,7 +205,7 @@
                                 "scalarType": "float32"
                             }
                         },
-                        "binding": {"kind": "uniform", "offset": 48, "size": 12, "elementStride": 4}
+                        "binding": {"kind": "uniform", "offset": 80, "size": 12, "elementStride": 4}
                     },
                     {
                         "name": "_padding1",
@@ -149,7 +213,7 @@
                             "kind": "scalar",
                             "scalarType": "float32"
                         },
-                        "binding": {"kind": "uniform", "offset": 60, "size": 4, "elementStride": 0}
+                        "binding": {"kind": "uniform", "offset": 92, "size": 4, "elementStride": 0}
                     },
                     {
                         "name": "overrideBoundsMax",
@@ -161,7 +225,7 @@
                                 "scalarType": "float32"
                             }
                         },
-                        "binding": {"kind": "uniform", "offset": 64, "size": 12, "elementStride": 4}
+                        "binding": {"kind": "uniform", "offset": 96, "size": 12, "elementStride": 4}
                     },
                     {
                         "name": "_padding2",
@@ -169,7 +233,7 @@
                             "kind": "scalar",
                             "scalarType": "float32"
                         },
-                        "binding": {"kind": "uniform", "offset": 76, "size": 4, "elementStride": 0}
+                        "binding": {"kind": "uniform", "offset": 108, "size": 4, "elementStride": 0}
                     }
                 ]
             }
@@ -349,8 +413,180 @@
             }
         },
         {
-            "name": "g_outputFramebuffer",
+            "name": "g_voxelChunks",
             "binding": {"kind": "descriptorTableSlot", "index": 4},
+            "type": {
+                "kind": "resource",
+                "baseShape": "structuredBuffer",
+                "resultType": {
+                    "kind": "struct",
+                    "name": "VoxelChunk",
+                    "fields": [
+                        {
+                            "name": "coord",
+                            "type": {
+                                "kind": "vector",
+                                "elementCount": 3,
+                                "elementType": {
+                                    "kind": "scalar",
+                                    "scalarType": "int32"
+                                }
+                            },
+                            "binding": {"kind": "uniform", "offset": 0, "size": 12, "elementStride": 4}
+                        },
+                        {
+                            "name": "brickOffset",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "uint32"
+                            },
+                            "binding": {"kind": "uniform", "offset": 12, "size": 4, "elementStride": 0}
+                        }
+                    ]
+                }
+            }
+        },
+        {
+            "name": "g_voxelBricks",
+            "binding": {"kind": "descriptorTableSlot", "index": 5},
+            "type": {
+                "kind": "resource",
+                "baseShape": "structuredBuffer",
+                "resultType": {
+                    "kind": "struct",
+                    "name": "VoxelBrick",
+                    "fields": [
+                        {
+                            "name": "kind",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "uint32"
+                            },
+                            "binding": {"kind": "uniform", "offset": 0, "size": 4, "elementStride": 0}
+                        },
+                        {
+                            "name": "material",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "uint32"
+                            },
+                            "binding": {"kind": "uniform", "offset": 4, "size": 4, "elementStride": 0}
+                        },
+                        {
+                            "name": "voxelOffset",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "uint32"
+                            },
+                            "binding": {"kind": "uniform", "offset": 8, "size": 4, "elementStride": 0}
+                        },
+                        {
+                            "name": "_padding",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "uint32"
+                            },
+                            "binding": {"kind": "uniform", "offset": 12, "size": 4, "elementStride": 0}
+                        }
+                    ]
+                }
+            }
+        },
+        {
+            "name": "g_voxelMaterials",
+            "binding": {"kind": "descriptorTableSlot", "index": 6},
+            "type": {
+                "kind": "resource",
+                "baseShape": "structuredBuffer",
+                "resultType": {
+                    "kind": "scalar",
+                    "scalarType": "uint32"
+                }
+            }
+        },
+        {
+            "name": "g_voxelChunkTable",
+            "binding": {"kind": "descriptorTableSlot", "index": 7},
+            "type": {
+                "kind": "resource",
+                "baseShape": "structuredBuffer",
+                "resultType": {
+                    "kind": "struct",
+                    "name": "VoxelChunkSlot",
+                    "fields": [
+                        {
+                            "name": "coord",
+                            "type": {
+                                "kind": "vector",
+                                "elementCount": 3,
+                                "elementType": {
+                                    "kind": "scalar",
+                                    "scalarType": "int32"
+                                }
+                            },
+                            "binding": {"kind": "uniform", "offset": 0, "size": 12, "elementStride": 4}
+                        },
+                        {
+                            "name": "chunkIndexPlusOne",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "uint32"
+                            },
+                            "binding": {"kind": "uniform", "offset": 12, "size": 4, "elementStride": 0}
+                        }
+                    ]
+                }
+            }
+        },
+        {
+            "name": "g_materials",
+            "binding": {"kind": "descriptorTableSlot", "index": 8},
+            "type": {
+                "kind": "resource",
+                "baseShape": "structuredBuffer",
+                "resultType": {
+                    "kind": "struct",
+                    "name": "MaterialRenderInfo",
+                    "fields": [
+                        {
+                            "name": "baseColor",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "uint32"
+                            },
+                            "binding": {"kind": "uniform", "offset": 0, "size": 4, "elementStride": 0}
+                        },
+                        {
+                            "name": "variationStrength",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "float32"
+                            },
+                            "binding": {"kind": "uniform", "offset": 4, "size": 4, "elementStride": 0}
+                        },
+                        {
+                            "name": "flags",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "uint32"
+                            },
+                            "binding": {"kind": "uniform", "offset": 8, "size": 4, "elementStride": 0}
+                        },
+                        {
+                            "name": "_padding",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "uint32"
+                            },
+                            "binding": {"kind": "uniform", "offset": 12, "size": 4, "elementStride": 0}
+                        }
+                    ]
+                }
+            }
+        },
+        {
+            "name": "g_outputFramebuffer",
+            "binding": {"kind": "descriptorTableSlot", "index": 9},
             "type": {
                 "kind": "resource",
                 "baseShape": "texture2D",
@@ -392,7 +628,7 @@
                 },
                 {
                     "name": "g_settings",
-                    "binding": {"kind": "uniform", "offset": 144, "size": 80, "elementStride": 0}
+                    "binding": {"kind": "uniform", "offset": 144, "size": 112, "elementStride": 0}
                 },
                 {
                     "name": "g_levels",
@@ -407,8 +643,28 @@
                     "binding": {"kind": "descriptorTableSlot", "index": 3}
                 },
                 {
-                    "name": "g_outputFramebuffer",
+                    "name": "g_voxelChunks",
                     "binding": {"kind": "descriptorTableSlot", "index": 4}
+                },
+                {
+                    "name": "g_voxelBricks",
+                    "binding": {"kind": "descriptorTableSlot", "index": 5}
+                },
+                {
+                    "name": "g_voxelMaterials",
+                    "binding": {"kind": "descriptorTableSlot", "index": 6}
+                },
+                {
+                    "name": "g_voxelChunkTable",
+                    "binding": {"kind": "descriptorTableSlot", "index": 7}
+                },
+                {
+                    "name": "g_materials",
+                    "binding": {"kind": "descriptorTableSlot", "index": 8}
+                },
+                {
+                    "name": "g_outputFramebuffer",
+                    "binding": {"kind": "descriptorTableSlot", "index": 9}
                 }
             ]
         }

@@ -5,7 +5,7 @@ import intrinsics "base:intrinsics"
 import "core:os"
 
 WORLD_SAVE_MAGIC :: [8]u8{'D', 'C', 'W', 'O', 'R', 'L', 'D', 0}
-WORLD_SAVE_VERSION :: u32(2)
+WORLD_SAVE_VERSION :: u32(6)
 MAX_PERSISTED_CELLS :: 257 * 257
 MAX_PERSISTED_FEATURES :: 16_384
 MAX_PERSISTED_OVERRIDES :: 1_048_576

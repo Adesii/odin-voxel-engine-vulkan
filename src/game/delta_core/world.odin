@@ -4,8 +4,10 @@ import heightfield "../../engine/terrain/heightfield"
 import "core:math"
 
 Natural_Terrain :: struct {
-	config: World_Config,
-	plan:   World_Plan,
+	config:         World_Config,
+	plan:           World_Plan,
+	ore_vein_start: [3]f32,
+	ore_vein_end:   [3]f32,
 }
 
 crater_wall_height :: proc(terrain: ^Natural_Terrain, x, z: f32) -> f32 {

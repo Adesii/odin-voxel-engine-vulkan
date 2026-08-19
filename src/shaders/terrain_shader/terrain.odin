@@ -15,12 +15,20 @@ TerrainSettings :: struct #align(16) {
 	overrideTableMask: u32, // offset: 16, size: 4
 	debugMode: u32, // offset: 20, size: 4
 	debugRingRadius: f32, // offset: 24, size: 4
-	_padding0: f32, // offset: 28, size: 4
-	lodDistances: [4]f32, // offset: 32, size: 16
-	overrideBoundsMin: [3]f32, // offset: 48, size: 12
-	_padding1: f32, // offset: 60, size: 4
-	overrideBoundsMax: [3]f32, // offset: 64, size: 12
-	_padding2: f32, // offset: 76, size: 4
+	voxelSize: f32, // offset: 28, size: 4
+	voxelRenderRadius: f32, // offset: 32, size: 4
+	voxelTransitionWidth: f32, // offset: 36, size: 4
+	chunkWorldSize: f32, // offset: 40, size: 4
+	chunkTableMask: u32, // offset: 44, size: 4
+	chunkCount: u32, // offset: 48, size: 4
+	materialCount: u32, // offset: 52, size: 4
+	visualSeedLo: u32, // offset: 56, size: 4
+	visualSeedHi: u32, // offset: 60, size: 4
+	lodDistances: [4]f32, // offset: 64, size: 16
+	overrideBoundsMin: [3]f32, // offset: 80, size: 12
+	_padding1: f32, // offset: 92, size: 4
+	overrideBoundsMax: [3]f32, // offset: 96, size: 12
+	_padding2: f32, // offset: 108, size: 4
 }
 
 TerrainLevel :: struct #align(16) {
@@ -48,15 +56,44 @@ SparseVoxel :: struct #align(16) {
 	_padding: [3]u32, // offset: 32, size: 12
 }
 
+VoxelChunk :: struct #align(16) {
+	coord: [3]i32, // offset: 0, size: 12
+	brickOffset: u32, // offset: 12, size: 4
+}
+
+VoxelBrick :: struct #align(16) {
+	kind: u32, // offset: 0, size: 4
+	material: u32, // offset: 4, size: 4
+	voxelOffset: u32, // offset: 8, size: 4
+	_padding: u32, // offset: 12, size: 4
+}
+
+VoxelChunkSlot :: struct #align(16) {
+	coord: [3]i32, // offset: 0, size: 12
+	chunkIndexPlusOne: u32, // offset: 12, size: 4
+}
+
+MaterialRenderInfo :: struct #align(16) {
+	baseColor: u32, // offset: 0, size: 4
+	variationStrength: f32, // offset: 4, size: 4
+	flags: u32, // offset: 8, size: 4
+	_padding: u32, // offset: 12, size: 4
+}
+
 // --- TERRAIN Pipeline Constants ---
 TERRAIN_MAIN_ENTRY_POINT :: "main"
 TERRAIN_THREAD_X :: 8
 TERRAIN_THREAD_Y :: 8
 TERRAIN_THREAD_Z :: 1
-TERRAIN_UNIFORM_BUFFER_SIZE :: 224
+TERRAIN_UNIFORM_BUFFER_SIZE :: 256
 TERRAIN_BINDING_G_CAMERA :: 0
 TERRAIN_BINDING_G_SETTINGS :: 0
 TERRAIN_BINDING_G_LEVELS :: 1
 TERRAIN_BINDING_G_SAMPLES :: 2
 TERRAIN_BINDING_G_OVERRIDES :: 3
-TERRAIN_BINDING_G_OUTPUTFRAMEBUFFER :: 4
+TERRAIN_BINDING_G_VOXELCHUNKS :: 4
+TERRAIN_BINDING_G_VOXELBRICKS :: 5
+TERRAIN_BINDING_G_VOXELMATERIALS :: 6
+TERRAIN_BINDING_G_VOXELCHUNKTABLE :: 7
+TERRAIN_BINDING_G_MATERIALS :: 8
+TERRAIN_BINDING_G_OUTPUTFRAMEBUFFER :: 9
