@@ -22,6 +22,7 @@ Game :: struct {
 	camera:              view.Camera,
 	world:               World,
 	debug_mode:          terrain_renderer.Debug_Mode,
+	terrain_config:      terrain_renderer.Config,
 	show_world_plan:     bool,
 	held_keys:           map[sdl.Keycode]bool,
 	shader_watchers:     shader_tools.Watcher_Set,
@@ -81,6 +82,8 @@ initialize :: proc(game: ^Game) {
 	if !initialize_world(&game.world, default_world_config()) {
 		fmt.panicf("Failed to load or generate Delta Core world")
 	}
+	game.terrain_config = default_terrain_render_config(game.world.terrain.config)
+	assert(terrain_renderer.valid_config(game.terrain_config))
 	shader_tools.compile("shader_src/", "shaders/")
 	presentation_shader := shader_assets.load_bytes("default.spirv")
 	defer delete(presentation_shader)
@@ -181,6 +184,13 @@ run_loop :: proc(game: ^Game) {
 				} else if event.button.button == sdl.BUTTON_RIGHT {
 					edit_crosshair_voxel(game, true)
 				}
+			case .MOUSE_WHEEL:
+				if event.wheel.integer_y > 0 {
+					base_speed += 1
+				} else {
+					base_speed -= 1
+				}
+				base_speed = max(base_speed, 1.0)
 			}
 		}
 		shader_tools.check_file_watchers(&game.shader_watchers)
@@ -202,6 +212,24 @@ run_loop :: proc(game: ^Game) {
 				f64(stats.gpu_bytes) / (1024 * 1024),
 				stats.persistent_edits,
 			)
+			traversal := game.terrain_render.stats
+			fmt.printf(
+				"Heightfield DDA: sampled=%v cells=%.1f max=%v hit-distance=%.1fm lod-cells=%.1f/%.1f/%.1f lod-hits=%v/%v/%v reps=%v/%v/%v misses=%v\n",
+				traversal.sampled_rays,
+				traversal.average_heightfield_cells,
+				traversal.maximum_heightfield_cells,
+				traversal.average_heightfield_hit_distance,
+				traversal.average_lod_cells[0],
+				traversal.average_lod_cells[1],
+				traversal.average_lod_cells[2],
+				traversal.lod_hits[0],
+				traversal.lod_hits[1],
+				traversal.lod_hits[2],
+				traversal.voxel_only_hits,
+				traversal.heightfield_only_hits,
+				traversal.blended_hits,
+				traversal.missed_rays,
+			)
 			elapsed_ms = 0
 			frame_count = 0
 		}
@@ -211,6 +239,7 @@ run_loop :: proc(game: ^Game) {
 
 		config := game.world.terrain.config
 		render_materials := voxel_render_materials()
+		terrain_materials := terrain_render_materials()
 		frame_input := terrain_renderer.Frame_Input {
 			renderer          = &game.terrain_render,
 			camera            = game.camera,
@@ -218,9 +247,10 @@ run_loop :: proc(game: ^Game) {
 			overrides         = &game.world.modifications,
 			voxels            = &game.world.voxels,
 			materials         = render_materials[:],
+			terrain_materials = terrain_materials[:],
+			config            = game.terrain_config,
 			visual_seed       = config.seed,
 			world_radius      = config.world_radius,
-			max_distance      = config.render_distance,
 			debug_mode        = game.debug_mode,
 			debug_ring_radius = config.crater_radius,
 		}
@@ -249,12 +279,31 @@ build_ui :: proc(game: ^Game, fps: f64) {
 	mu.begin_window(
 		ctx,
 		"Runtime",
-		{h = 150, w = 330, x = 0, y = 0},
+		{h = 220, w = 380, x = 0, y = 0},
 		mu.Options{.NO_SCROLL, .NO_INTERACT, .NO_FRAME, .NO_RESIZE, .NO_TITLE, .NO_CLOSE},
 	)
 	mu.text(ctx, fmt.tprintf("FPS: %.2f", fps))
 	mu.text(ctx, fmt.tprintf("Debug: %v (F1)", game.debug_mode))
 	mu.text(ctx, "LMB mine / RMB place / F2 world plan")
+	mu.text(
+		ctx,
+		fmt.tprintf(
+			"Virtual voxels: %.0f / %.0f / %.0f m",
+			game.terrain_config.virtual_voxel_size[0],
+			game.terrain_config.virtual_voxel_size[1],
+			game.terrain_config.virtual_voxel_size[2],
+		),
+	)
+	stats := game.terrain_render.stats
+	mu.text(
+		ctx,
+		fmt.tprintf(
+			"DDA cells avg/max: %.1f / %v",
+			stats.average_heightfield_cells,
+			stats.maximum_heightfield_cells,
+		),
+	)
+	mu.text(ctx, fmt.tprintf("HF hit distance: %.1f m", stats.average_heightfield_hit_distance))
 	if game.last_mined_material != .AIR {
 		mu.text(ctx, fmt.tprintf("Last mined: %v", game.last_mined_material))
 	}
@@ -263,8 +312,11 @@ build_ui :: proc(game: ^Game, fps: f64) {
 	mu.end(ctx)
 }
 
+base_speed := 1.0
+
 update_camera :: proc(game: ^Game, dt_ms: f32) {
 	speed := 12.0 * dt_ms / 1000.0
+	speed *= f32(base_speed)
 	if game.held_keys[sdl.K_LSHIFT] {
 		speed *= 5
 	}

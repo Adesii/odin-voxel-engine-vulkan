@@ -22,13 +22,18 @@ TerrainSettings :: struct #align(16) {
 	chunkTableMask: u32, // offset: 44, size: 4
 	chunkCount: u32, // offset: 48, size: 4
 	materialCount: u32, // offset: 52, size: 4
-	visualSeedLo: u32, // offset: 56, size: 4
-	visualSeedHi: u32, // offset: 60, size: 4
-	lodDistances: [4]f32, // offset: 64, size: 16
-	overrideBoundsMin: [3]f32, // offset: 80, size: 12
-	_padding1: f32, // offset: 92, size: 4
-	overrideBoundsMax: [3]f32, // offset: 96, size: 12
-	_padding2: f32, // offset: 108, size: 4
+	terrainMaterialOffset: u32, // offset: 56, size: 4
+	terrainMaterialCount: u32, // offset: 60, size: 4
+	visualSeedLo: u32, // offset: 64, size: 4
+	visualSeedHi: u32, // offset: 68, size: 4
+	_pad_80: [8]u8,
+	lodDistances: [4]f32, // offset: 80, size: 16
+	virtualVoxelSizes: [4]f32, // offset: 96, size: 16
+	verticalSteps: [4]f32, // offset: 112, size: 16
+	overrideBoundsMin: [3]f32, // offset: 128, size: 12
+	statsSampleStride: u32, // offset: 140, size: 4
+	overrideBoundsMax: [3]f32, // offset: 144, size: 12
+	heightfieldTransitionWidth: f32, // offset: 156, size: 4
 }
 
 TerrainLevel :: struct #align(16) {
@@ -45,7 +50,7 @@ TerrainSample :: struct #align(16) {
 	height: f32, // offset: 0, size: 4
 	mountainInfluence: f32, // offset: 4, size: 4
 	material: u32, // offset: 8, size: 4
-	packedColor: u32, // offset: 12, size: 4
+	_padding: u32, // offset: 12, size: 4
 }
 
 SparseVoxel :: struct #align(16) {
@@ -80,12 +85,33 @@ MaterialRenderInfo :: struct #align(16) {
 	_padding: u32, // offset: 12, size: 4
 }
 
+TerrainTraversalStats :: struct #align(16) {
+	sampledRays: u32, // offset: 0, size: 4
+	heightfieldCellVisits: u32, // offset: 4, size: 4
+	maxHeightfieldCellVisits: u32, // offset: 8, size: 4
+	heightfieldHits: u32, // offset: 12, size: 4
+	heightfieldHitDistanceMeters: u32, // offset: 16, size: 4
+	lod0Hits: u32, // offset: 20, size: 4
+	lod1Hits: u32, // offset: 24, size: 4
+	lod2Hits: u32, // offset: 28, size: 4
+	lod0CellVisits: u32, // offset: 32, size: 4
+	lod1CellVisits: u32, // offset: 36, size: 4
+	lod2CellVisits: u32, // offset: 40, size: 4
+	lod0TraversedRays: u32, // offset: 44, size: 4
+	lod1TraversedRays: u32, // offset: 48, size: 4
+	lod2TraversedRays: u32, // offset: 52, size: 4
+	voxelOnlyHits: u32, // offset: 56, size: 4
+	heightfieldOnlyHits: u32, // offset: 60, size: 4
+	blendedHits: u32, // offset: 64, size: 4
+	missedRays: u32, // offset: 68, size: 4
+}
+
 // --- TERRAIN Pipeline Constants ---
 TERRAIN_MAIN_ENTRY_POINT :: "main"
 TERRAIN_THREAD_X :: 8
 TERRAIN_THREAD_Y :: 8
 TERRAIN_THREAD_Z :: 1
-TERRAIN_UNIFORM_BUFFER_SIZE :: 256
+TERRAIN_UNIFORM_BUFFER_SIZE :: 304
 TERRAIN_BINDING_G_CAMERA :: 0
 TERRAIN_BINDING_G_SETTINGS :: 0
 TERRAIN_BINDING_G_LEVELS :: 1
@@ -97,3 +123,4 @@ TERRAIN_BINDING_G_VOXELMATERIALS :: 6
 TERRAIN_BINDING_G_VOXELCHUNKTABLE :: 7
 TERRAIN_BINDING_G_MATERIALS :: 8
 TERRAIN_BINDING_G_OUTPUTFRAMEBUFFER :: 9
+TERRAIN_BINDING_G_TRAVERSALSTATS :: 10

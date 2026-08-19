@@ -1,4 +1,5 @@
 package delta_core
+import terrain_renderer "../../engine/render/terrain"
 
 World_Size :: enum u8 {
 	SMALL,
@@ -33,7 +34,7 @@ World_Config :: struct {
 }
 
 default_world_config :: proc(
-	size: World_Size = .SMALL,
+	size: World_Size = .MEDIUM,
 	seed: u64 = 0xD317_A_C0DE,
 ) -> World_Config {
 	config := World_Config {
@@ -42,15 +43,15 @@ default_world_config :: proc(
 		base_elevation                        = 20,
 		base_voxel_size                       = 0.25,
 		modification_voxel_size               = 0.25,
-		voxel_residency_radius                = 24,
-		voxel_render_radius                   = 18,
+		voxel_residency_radius                = 24 * 2,
+		voxel_render_radius                   = 18 * 2, //TODO: this shouldn't matter for world generation. these are render settings.
 		voxel_transition_width                = 6,
-		voxel_generation_depth                = 32,
+		voxel_generation_depth                = 12,
 		voxel_generation_height_above_surface = 8,
 		voxel_column_sample_stride            = 4,
 		voxel_chunks_per_frame                = 2,
 		max_generation_attempts               = 8,
-		cache_sample_count                    = 129,
+		cache_sample_count                    = 200, //TODO: this shouldn't matter for world generation. these are render settings.
 	}
 	switch size {
 	case .SMALL:
@@ -61,8 +62,8 @@ default_world_config :: proc(
 		config.mountain_height = 1_200
 		config.rolling_terrain_height = 90
 		config.plan_resolution = 64
-		config.cache_lod_spacing = {4, 16, 128}
-		config.render_distance = 24_000
+		// config.cache_lod_spacing = {4, 16, 128}//TODO: this shouldn't matter for world generation. these are render settings.
+		config.render_distance = 24_000 //TODO: this shouldn't matter for world generation. these are render settings.
 	case .MEDIUM:
 		config.world_radius = 16_384
 		config.crater_radius = 14_000
@@ -71,8 +72,8 @@ default_world_config :: proc(
 		config.mountain_height = 1_900
 		config.rolling_terrain_height = 120
 		config.plan_resolution = 96
-		config.cache_lod_spacing = {4, 32, 256}
-		config.render_distance = 46_000
+		// config.cache_lod_spacing = {4, 32, 256}//TODO: this shouldn't matter for world generation. these are render settings.
+		config.render_distance = 46_000 //TODO: this shouldn't matter for world generation. these are render settings.
 	case .LARGE:
 		config.world_radius = 32_768
 		config.crater_radius = 28_000
@@ -81,10 +82,28 @@ default_world_config :: proc(
 		config.mountain_height = 3_000
 		config.rolling_terrain_height = 170
 		config.plan_resolution = 128
-		config.cache_lod_spacing = {4, 64, 512}
-		config.render_distance = 90_000
+		config.render_distance = 90_000 //TODO: this shouldn't matter for world generation. these are render settings.
 	}
+	config.cache_lod_spacing = {4, 64, 512} //TODO: this shouldn't matter for world generation. these are render settings.
 	return config
+}
+
+default_terrain_render_config :: proc(config: World_Config) -> terrain_renderer.Config {
+	sample_cells := f32(config.cache_sample_count - 1)
+	return {
+		near_voxel_distance = config.voxel_render_radius,
+		voxel_transition_width = config.voxel_transition_width,
+		heightfield_lod_end_distances = {
+			sample_cells * config.cache_lod_spacing[0] * 0.4,
+			sample_cells * config.cache_lod_spacing[1] * 0.4,
+			config.render_distance,
+		},
+		far_distance = config.render_distance,
+		virtual_voxel_size = config.cache_lod_spacing,
+		vertical_quantization = config.cache_lod_spacing,
+		heightfield_lod_transition_width = max(config.cache_lod_spacing[1] * 2, 32),
+		stats_sample_stride = 8,
+	}
 }
 
 world_diameter :: proc(config: World_Config) -> f32 {

@@ -1,4 +1,5 @@
 package delta_core
+import terrain_renderer "../../engine/render/terrain"
 
 import sparse "../../engine/terrain/sparse"
 import voxel_terrain "../../engine/terrain/voxel"
@@ -210,4 +211,21 @@ mined_ore_depletion_survives_save_and_regeneration :: proc(t: ^testing.T) {
 	voxel_terrain.update(&resident, position, voxel_source(&loaded_terrain), &loaded_modifications)
 	testing.expect_value(t, voxel_terrain.material_at(&resident, voxel), voxel_terrain.AIR)
 	testing.expect_value(t, loaded_modifications.modified_count, 1)
+}
+
+@(test)
+terrain_render_presets_are_world_aligned :: proc(t: ^testing.T) {
+	sizes := [?]World_Size{World_Size.SMALL, World_Size.MEDIUM, World_Size.LARGE}
+	for size in sizes {
+		world := default_world_config(size)
+		render := default_terrain_render_config(world)
+		testing.expect(t, terrain_renderer.valid_config(render))
+		testing.expect_value(t, render.near_voxel_distance, world.voxel_render_radius)
+		testing.expect_value(t, render.virtual_voxel_size, world.cache_lod_spacing)
+		testing.expect_value(t, render.vertical_quantization, world.cache_lod_spacing)
+		for index in 0 ..< len(render.virtual_voxel_size) {
+			ratio := render.virtual_voxel_size[index] / world.cache_lod_spacing[index]
+			testing.expect(t, math.abs(ratio - math.round(ratio)) < 0.0001)
+		}
+	}
 }

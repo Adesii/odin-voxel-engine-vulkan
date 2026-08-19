@@ -107,6 +107,17 @@ voxel_render_materials :: proc(
 	return result
 }
 
+terrain_render_materials :: proc() -> [len(Biome)]terrain_renderer.Material_Render_Info {
+	result: [len(Biome)]terrain_renderer.Material_Render_Info
+	for index in 0 ..< len(Biome) {
+		result[index] = {
+			base_color         = terrain_biome_color(Biome(index)),
+			variation_strength = 0.12,
+		}
+	}
+	return result
+}
+
 voxel_column_sample :: proc(data: rawptr, x, z: f32) -> voxel_terrain.Column_Sample {
 	terrain := cast(^Natural_Terrain)data
 	sample := sample_natural_terrain(terrain, x, z)

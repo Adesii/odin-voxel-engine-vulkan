@@ -8,6 +8,7 @@ import view "../../view"
 import shader_assets "../shader_assets"
 import vulkan "../vulkan"
 import "core:mem"
+import "core:math"
 import "core:slice"
 import vk "vendor:vulkan"
 
@@ -26,6 +27,11 @@ Debug_Mode :: enum u32 {
 	MATERIAL,
 	MOUNTAIN_INFLUENCE,
 	HEIGHTFIELD_GRID,
+	VIRTUAL_VOXEL_CELLS,
+	VIRTUAL_VOXEL_FACES,
+	LOD_TRANSITIONS,
+	HEIGHT_QUANTIZATION,
+	DDA_TRAVERSAL,
 	WORLD_RING,
 	MODIFICATIONS,
 	VOXEL_GRID,
@@ -46,6 +52,50 @@ Material_Render_Info :: struct {
 	_padding:           u32,
 }
 
+Config :: struct {
+	near_voxel_distance:              f32,
+	voxel_transition_width:           f32,
+	heightfield_lod_end_distances:    [3]f32,
+	far_distance:                     f32,
+	virtual_voxel_size:               [3]f32,
+	vertical_quantization:            [3]f32,
+	heightfield_lod_transition_width: f32,
+	stats_sample_stride:              u32,
+}
+
+valid_config :: proc(config: Config) -> bool {
+	return(
+		config.near_voxel_distance > 0 &&
+		config.voxel_transition_width >= 0 &&
+		config.voxel_transition_width < config.near_voxel_distance &&
+		config.heightfield_lod_end_distances[0] > config.near_voxel_distance &&
+		config.heightfield_lod_end_distances[1] > config.heightfield_lod_end_distances[0] &&
+		config.heightfield_lod_end_distances[2] > config.heightfield_lod_end_distances[1] &&
+		config.far_distance == config.heightfield_lod_end_distances[2] &&
+		config.virtual_voxel_size[0] > 0 &&
+		config.virtual_voxel_size[1] > config.virtual_voxel_size[0] &&
+		config.virtual_voxel_size[2] > config.virtual_voxel_size[1] &&
+		config.vertical_quantization[0] > 0 &&
+		config.vertical_quantization[1] >= config.vertical_quantization[0] &&
+		config.vertical_quantization[2] >= config.vertical_quantization[1] &&
+		config.heightfield_lod_transition_width >= 0 \
+	)
+}
+
+Traversal_Stats :: struct {
+	sampled_rays:                    u32,
+	average_heightfield_cells:       f32,
+	maximum_heightfield_cells:       u32,
+	average_heightfield_hit_distance: f32,
+	heightfield_hits:                u32,
+	lod_hits:                        [3]u32,
+	average_lod_cells:               [3]f32,
+	voxel_only_hits:                 u32,
+	heightfield_only_hits:           u32,
+	blended_hits:                    u32,
+	missed_rays:                     u32,
+}
+
 Frame_Uniforms :: struct #align (16) {
 	camera:   bindings.CameraUniforms,
 	settings: bindings.TerrainSettings,
@@ -54,6 +104,7 @@ Frame_Uniforms :: struct #align (16) {
 #assert(size_of(Frame_Uniforms) == bindings.TERRAIN_UNIFORM_BUFFER_SIZE)
 #assert(size_of(heightfield.Sample) == size_of(bindings.TerrainSample))
 #assert(size_of(Material_Render_Info) == size_of(bindings.MaterialRenderInfo))
+#assert(size_of(bindings.TerrainTraversalStats) % 16 == 0)
 
 Context :: struct {
 	uniform_buffers:           [vulkan.MAX_FRAMES_IN_FLIGHT]vulkan.Buffer,
@@ -65,6 +116,7 @@ Context :: struct {
 	voxel_material_buffers:    [vulkan.MAX_FRAMES_IN_FLIGHT]vulkan.Buffer,
 	voxel_chunk_table_buffers: [vulkan.MAX_FRAMES_IN_FLIGHT]vulkan.Buffer,
 	material_buffers:          [vulkan.MAX_FRAMES_IN_FLIGHT]vulkan.Buffer,
+	stats_buffers:             [vulkan.MAX_FRAMES_IN_FLIGHT]vulkan.Buffer,
 	descriptor_sets:           [vulkan.MAX_FRAMES_IN_FLIGHT]vk.DescriptorSet,
 	descriptor_layout:         vk.DescriptorSetLayout,
 	pipeline_layout:           vk.PipelineLayout,
@@ -81,6 +133,8 @@ Context :: struct {
 	voxel_chunk_table:         []bindings.VoxelChunkSlot,
 	uploaded_generation:       [vulkan.MAX_FRAMES_IN_FLIGHT]u64,
 	uploaded_edit_count:       [vulkan.MAX_FRAMES_IN_FLIGHT]u64,
+	stats_ready:               [vulkan.MAX_FRAMES_IN_FLIGHT]bool,
+	stats:                     Traversal_Stats,
 	chunk_table_mask:          u32,
 }
 
@@ -91,9 +145,10 @@ Frame_Input :: struct {
 	overrides:         ^sparse.World,
 	voxels:            ^voxel_terrain.World,
 	materials:         []Material_Render_Info,
+	terrain_materials: []Material_Render_Info,
+	config:            Config,
 	visual_seed:       u64,
 	world_radius:      f32,
-	max_distance:      f32,
 	debug_mode:        Debug_Mode,
 	debug_ring_radius: f32,
 }
@@ -111,6 +166,7 @@ init :: proc(ctx: ^Context, r: ^vulkan.Renderer) {
 		{binding = bindings.TERRAIN_BINDING_G_VOXELCHUNKTABLE, type = .STORAGE_BUFFER},
 		{binding = bindings.TERRAIN_BINDING_G_MATERIALS, type = .STORAGE_BUFFER},
 		{binding = bindings.TERRAIN_BINDING_G_OUTPUTFRAMEBUFFER, type = .STORAGE_IMAGE},
+		{binding = bindings.TERRAIN_BINDING_G_TRAVERSALSTATS, type = .STORAGE_BUFFER},
 	}
 	ctx.descriptor_layout = vulkan.create_descriptor_set_layout(r, {.COMPUTE}, bindings_desc[:])
 	ctx.pipeline_layout = vulkan.create_pipeline_layout(r, ctx.descriptor_layout)
@@ -166,6 +222,12 @@ init :: proc(ctx: ^Context, r: ^vulkan.Renderer) {
 		ctx.material_buffers[index] = vulkan.create_buffer(
 			r,
 			MAX_GPU_MATERIALS * size_of(bindings.MaterialRenderInfo),
+			{.STORAGE_BUFFER},
+			{.HOST_VISIBLE, .HOST_COHERENT},
+		)
+		ctx.stats_buffers[index] = vulkan.create_buffer(
+			r,
+			size_of(bindings.TerrainTraversalStats),
 			{.STORAGE_BUFFER},
 			{.HOST_VISIBLE, .HOST_COHERENT},
 		)
@@ -308,11 +370,15 @@ update_descriptors :: proc(ctx: ^Context, r: ^vulkan.Renderer) {
 			buffer = ctx.material_buffers[index].buffer,
 			range  = MAX_GPU_MATERIALS * size_of(bindings.MaterialRenderInfo),
 		}
+		stats_info := vk.DescriptorBufferInfo {
+			buffer = ctx.stats_buffers[index].buffer,
+			range  = size_of(bindings.TerrainTraversalStats),
+		}
 		image_info := vk.DescriptorImageInfo {
 			imageView   = ctx.outputs[index].view,
 			imageLayout = .GENERAL,
 		}
-		writes := [10]vk.WriteDescriptorSet {
+		writes := [11]vk.WriteDescriptorSet {
 			{
 				sType = .WRITE_DESCRIPTOR_SET,
 				dstSet = ctx.descriptor_sets[index],
@@ -392,6 +458,14 @@ update_descriptors :: proc(ctx: ^Context, r: ^vulkan.Renderer) {
 				descriptorCount = 1,
 				descriptorType = .STORAGE_IMAGE,
 				pImageInfo = &image_info,
+			},
+			{
+				sType = .WRITE_DESCRIPTOR_SET,
+				dstSet = ctx.descriptor_sets[index],
+				dstBinding = bindings.TERRAIN_BINDING_G_TRAVERSALSTATS,
+				descriptorCount = 1,
+				descriptorType = .STORAGE_BUFFER,
+				pBufferInfo = &stats_info,
 			},
 		}
 		vk.UpdateDescriptorSets(r.device, len(writes), &writes[0], 0, nil)
@@ -594,6 +668,55 @@ upload_voxel_buffers :: proc(
 	ctx.uploaded_edit_count[frame_index] = edit_count
 }
 
+update_traversal_stats :: proc(
+	ctx: ^Context,
+	r: ^vulkan.Renderer,
+	frame_index: int,
+) {
+	if ctx.stats_ready[frame_index] {
+		raw: bindings.TerrainTraversalStats
+		vulkan.read_buffer(r, &ctx.stats_buffers[frame_index], &raw, size_of(raw))
+		average_cells: f32
+		average_hit_distance: f32
+		average_lod_cells: [3]f32
+		if raw.sampledRays > 0 {
+			average_cells = f32(raw.heightfieldCellVisits) / f32(raw.sampledRays)
+		}
+		if raw.heightfieldHits > 0 {
+			average_hit_distance =
+				f32(raw.heightfieldHitDistanceMeters) / f32(raw.heightfieldHits)
+		}
+		if raw.lod0TraversedRays > 0 {
+			average_lod_cells[0] =
+				f32(raw.lod0CellVisits) / f32(raw.lod0TraversedRays)
+		}
+		if raw.lod1TraversedRays > 0 {
+			average_lod_cells[1] =
+				f32(raw.lod1CellVisits) / f32(raw.lod1TraversedRays)
+		}
+		if raw.lod2TraversedRays > 0 {
+			average_lod_cells[2] =
+				f32(raw.lod2CellVisits) / f32(raw.lod2TraversedRays)
+		}
+		ctx.stats = {
+			sampled_rays = raw.sampledRays,
+			average_heightfield_cells = average_cells,
+			maximum_heightfield_cells = raw.maxHeightfieldCellVisits,
+			average_heightfield_hit_distance = average_hit_distance,
+			heightfield_hits = raw.heightfieldHits,
+			lod_hits = {raw.lod0Hits, raw.lod1Hits, raw.lod2Hits},
+			average_lod_cells = average_lod_cells,
+			voxel_only_hits = raw.voxelOnlyHits,
+			heightfield_only_hits = raw.heightfieldOnlyHits,
+			blended_hits = raw.blendedHits,
+			missed_rays = raw.missedRays,
+		}
+	}
+	zero: bindings.TerrainTraversalStats
+	vulkan.write_buffer(r, &ctx.stats_buffers[frame_index], &zero, size_of(zero))
+	ctx.stats_ready[frame_index] = true
+}
+
 update_frame_data :: proc(
 	ctx: ^Context,
 	r: ^vulkan.Renderer,
@@ -601,19 +724,37 @@ update_frame_data :: proc(
 	frame_index: int,
 ) {
 	assert(len(input.cache.samples) <= MAX_GPU_SAMPLES)
-	assert(len(input.materials) > 0 && len(input.materials) <= MAX_GPU_MATERIALS)
+	assert(len(input.materials) > 0)
+	assert(len(input.terrain_materials) > 0)
+	assert(len(input.materials) + len(input.terrain_materials) <= MAX_GPU_MATERIALS)
+	assert(valid_config(input.config))
+	update_traversal_stats(ctx, r, frame_index)
 	mask, bounds_min, bounds_max := build_override_table(ctx, input.overrides)
 	upload_voxel_buffers(ctx, r, input, frame_index)
 	level_count := int(input.cache.config.level_count)
 	lod_distances := [4]f32 {
-		input.max_distance,
-		input.max_distance,
-		input.max_distance,
-		input.max_distance,
+		input.config.heightfield_lod_end_distances[0],
+		input.config.heightfield_lod_end_distances[1],
+		input.config.heightfield_lod_end_distances[2],
+		input.config.far_distance,
+	}
+	virtual_voxel_sizes := [4]f32 {
+		input.config.virtual_voxel_size[0],
+		input.config.virtual_voxel_size[1],
+		input.config.virtual_voxel_size[2],
+		input.config.virtual_voxel_size[2],
+	}
+	vertical_steps := [4]f32 {
+		input.config.vertical_quantization[0],
+		input.config.vertical_quantization[1],
+		input.config.vertical_quantization[2],
+		input.config.vertical_quantization[2],
 	}
 	levels: [heightfield.MAX_LOD_LEVELS]bindings.TerrainLevel
 	for index in 0 ..< level_count {
 		source := input.cache.levels[index]
+		ratio := input.config.virtual_voxel_size[index] / source.spacing
+		assert(math.abs(ratio - math.round(ratio)) < 0.0001)
 		levels[index] = {
 			origin       = source.origin,
 			spacing      = source.spacing,
@@ -622,7 +763,6 @@ update_frame_data :: proc(
 			extent       = source.extent,
 			lod          = source.lod,
 		}
-		lod_distances[index] = source.extent * 0.4
 	}
 	uniforms := Frame_Uniforms {
 		camera = {
@@ -632,26 +772,41 @@ update_frame_data :: proc(
 		},
 		settings = {
 			worldRadius = input.world_radius,
-			maxDistance = input.max_distance,
+			maxDistance = input.config.far_distance,
 			modificationVoxelSize = input.overrides.voxel_size,
 			levelCount = input.cache.config.level_count,
 			overrideTableMask = mask,
 			debugMode = u32(input.debug_mode),
 			debugRingRadius = input.debug_ring_radius,
 			voxelSize = input.voxels.config.voxel_size,
-			voxelRenderRadius = input.voxels.config.render_radius,
-			voxelTransitionWidth = input.voxels.config.transition_width,
+			voxelRenderRadius = input.config.near_voxel_distance,
+			voxelTransitionWidth = input.config.voxel_transition_width,
 			chunkWorldSize = voxel_terrain.chunk_world_size(input.voxels),
 			chunkTableMask = ctx.chunk_table_mask,
 			chunkCount = u32(len(input.voxels.chunks)),
 			materialCount = u32(len(input.materials)),
+			terrainMaterialOffset = u32(len(input.materials)),
+			terrainMaterialCount = u32(len(input.terrain_materials)),
 			visualSeedLo = u32(input.visual_seed),
 			visualSeedHi = u32(input.visual_seed >> 32),
 			lodDistances = lod_distances,
+			virtualVoxelSizes = virtual_voxel_sizes,
+			verticalSteps = vertical_steps,
 			overrideBoundsMin = bounds_min,
+			statsSampleStride = input.config.stats_sample_stride,
 			overrideBoundsMax = bounds_max,
+			heightfieldTransitionWidth = input.config.heightfield_lod_transition_width,
 		},
 	}
+	render_materials: [MAX_GPU_MATERIALS]Material_Render_Info
+	for material, index in input.materials {
+		render_materials[index] = material
+	}
+	for material, index in input.terrain_materials {
+		render_materials[len(input.materials) + index] = material
+	}
+	render_material_count := len(input.materials) + len(input.terrain_materials)
+
 	vulkan.write_buffer(r, &ctx.uniform_buffers[frame_index], &uniforms, size_of(uniforms))
 	vulkan.write_buffer(r, &ctx.level_buffers[frame_index], &levels, size_of(levels))
 	vulkan.write_buffer(
@@ -663,8 +818,8 @@ update_frame_data :: proc(
 	vulkan.write_buffer(
 		r,
 		&ctx.material_buffers[frame_index],
-		raw_data(input.materials),
-		len(input.materials) * size_of(Material_Render_Info),
+		&render_materials[0],
+		render_material_count * size_of(Material_Render_Info),
 	)
 	if mask > 0 {
 		vulkan.write_buffer(
@@ -766,6 +921,7 @@ destroy :: proc(ctx: ^Context, r: ^vulkan.Renderer) {
 		vulkan.destroy_buffer(r, &ctx.voxel_material_buffers[index])
 		vulkan.destroy_buffer(r, &ctx.voxel_chunk_table_buffers[index])
 		vulkan.destroy_buffer(r, &ctx.material_buffers[index])
+		vulkan.destroy_buffer(r, &ctx.stats_buffers[index])
 	}
 	delete(ctx.override_table)
 	delete(ctx.voxel_chunks)

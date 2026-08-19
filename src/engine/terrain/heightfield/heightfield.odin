@@ -7,8 +7,8 @@ MAX_LOD_LEVELS :: 3
 Sample :: struct {
 	height:             f32,
 	mountain_influence: f32,
-	material:              u32,
-	packed_color:              u32,
+	material:           u32,
+	_padding:           u32,
 }
 
 Sample_Proc :: proc(data: rawptr, x, z: f32) -> Sample
