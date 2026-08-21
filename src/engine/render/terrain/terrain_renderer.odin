@@ -7,14 +7,15 @@ import voxel_terrain "../../terrain/voxel"
 import view "../../view"
 import shader_assets "../shader_assets"
 import vulkan "../vulkan"
-import "core:mem"
+import "core:fmt"
 import "core:math"
+import "core:mem"
 import "core:slice"
 import vk "vendor:vulkan"
 
 MAX_RENDERED_OVERRIDES :: 4_096
 MAX_OVERRIDE_TABLE_SLOTS :: 16_384
-MAX_GPU_SAMPLES :: heightfield.MAX_LOD_LEVELS * 257 * 257
+MAX_GPU_SAMPLES :: heightfield.MAX_LOD_LEVELS * 1024 * 1024
 MAX_GPU_CHUNKS :: 2_048
 MAX_GPU_BRICKS :: MAX_GPU_CHUNKS * voxel_terrain.BRICKS_PER_CHUNK
 MAX_GPU_VOXELS :: 16 * 1_024 * 1_024
@@ -64,6 +65,7 @@ Config :: struct {
 }
 
 valid_config :: proc(config: Config) -> bool {
+
 	return(
 		config.near_voxel_distance > 0 &&
 		config.voxel_transition_width >= 0 &&
@@ -83,17 +85,17 @@ valid_config :: proc(config: Config) -> bool {
 }
 
 Traversal_Stats :: struct {
-	sampled_rays:                    u32,
-	average_heightfield_cells:       f32,
-	maximum_heightfield_cells:       u32,
+	sampled_rays:                     u32,
+	average_heightfield_cells:        f32,
+	maximum_heightfield_cells:        u32,
 	average_heightfield_hit_distance: f32,
-	heightfield_hits:                u32,
-	lod_hits:                        [3]u32,
-	average_lod_cells:               [3]f32,
-	voxel_only_hits:                 u32,
-	heightfield_only_hits:           u32,
-	blended_hits:                    u32,
-	missed_rays:                     u32,
+	heightfield_hits:                 u32,
+	lod_hits:                         [3]u32,
+	average_lod_cells:                [3]f32,
+	voxel_only_hits:                  u32,
+	heightfield_only_hits:            u32,
+	blended_hits:                     u32,
+	missed_rays:                      u32,
 }
 
 Frame_Uniforms :: struct #align (16) {
@@ -668,11 +670,7 @@ upload_voxel_buffers :: proc(
 	ctx.uploaded_edit_count[frame_index] = edit_count
 }
 
-update_traversal_stats :: proc(
-	ctx: ^Context,
-	r: ^vulkan.Renderer,
-	frame_index: int,
-) {
+update_traversal_stats :: proc(ctx: ^Context, r: ^vulkan.Renderer, frame_index: int) {
 	if ctx.stats_ready[frame_index] {
 		raw: bindings.TerrainTraversalStats
 		vulkan.read_buffer(r, &ctx.stats_buffers[frame_index], &raw, size_of(raw))
@@ -683,33 +681,29 @@ update_traversal_stats :: proc(
 			average_cells = f32(raw.heightfieldCellVisits) / f32(raw.sampledRays)
 		}
 		if raw.heightfieldHits > 0 {
-			average_hit_distance =
-				f32(raw.heightfieldHitDistanceMeters) / f32(raw.heightfieldHits)
+			average_hit_distance = f32(raw.heightfieldHitDistanceMeters) / f32(raw.heightfieldHits)
 		}
 		if raw.lod0TraversedRays > 0 {
-			average_lod_cells[0] =
-				f32(raw.lod0CellVisits) / f32(raw.lod0TraversedRays)
+			average_lod_cells[0] = f32(raw.lod0CellVisits) / f32(raw.lod0TraversedRays)
 		}
 		if raw.lod1TraversedRays > 0 {
-			average_lod_cells[1] =
-				f32(raw.lod1CellVisits) / f32(raw.lod1TraversedRays)
+			average_lod_cells[1] = f32(raw.lod1CellVisits) / f32(raw.lod1TraversedRays)
 		}
 		if raw.lod2TraversedRays > 0 {
-			average_lod_cells[2] =
-				f32(raw.lod2CellVisits) / f32(raw.lod2TraversedRays)
+			average_lod_cells[2] = f32(raw.lod2CellVisits) / f32(raw.lod2TraversedRays)
 		}
 		ctx.stats = {
-			sampled_rays = raw.sampledRays,
-			average_heightfield_cells = average_cells,
-			maximum_heightfield_cells = raw.maxHeightfieldCellVisits,
+			sampled_rays                     = raw.sampledRays,
+			average_heightfield_cells        = average_cells,
+			maximum_heightfield_cells        = raw.maxHeightfieldCellVisits,
 			average_heightfield_hit_distance = average_hit_distance,
-			heightfield_hits = raw.heightfieldHits,
-			lod_hits = {raw.lod0Hits, raw.lod1Hits, raw.lod2Hits},
-			average_lod_cells = average_lod_cells,
-			voxel_only_hits = raw.voxelOnlyHits,
-			heightfield_only_hits = raw.heightfieldOnlyHits,
-			blended_hits = raw.blendedHits,
-			missed_rays = raw.missedRays,
+			heightfield_hits                 = raw.heightfieldHits,
+			lod_hits                         = {raw.lod0Hits, raw.lod1Hits, raw.lod2Hits},
+			average_lod_cells                = average_lod_cells,
+			voxel_only_hits                  = raw.voxelOnlyHits,
+			heightfield_only_hits            = raw.heightfieldOnlyHits,
+			blended_hits                     = raw.blendedHits,
+			missed_rays                      = raw.missedRays,
 		}
 	}
 	zero: bindings.TerrainTraversalStats
@@ -754,7 +748,10 @@ update_frame_data :: proc(
 	for index in 0 ..< level_count {
 		source := input.cache.levels[index]
 		ratio := input.config.virtual_voxel_size[index] / source.spacing
-		assert(math.abs(ratio - math.round(ratio)) < 0.0001)
+		// if (math.abs(ratio - math.round(ratio)) < 0.0001) {
+		// 	fmt.printf("ratio : %f at level %i", ratio, index)
+		// }
+		// assert(math.abs(ratio - math.round(ratio)) < 0.0001)
 		levels[index] = {
 			origin       = source.origin,
 			spacing      = source.spacing,

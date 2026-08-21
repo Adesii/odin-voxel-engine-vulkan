@@ -1,5 +1,6 @@
 package delta_core
 
+import tracy "../../../vendor/odin-tracy"
 import shader_assets "../../engine/render/shader_assets"
 import terrain_renderer "../../engine/render/terrain"
 import vulkan "../../engine/render/vulkan"
@@ -13,6 +14,8 @@ import "core:mem"
 import mu "vendor:microui"
 import sdl "vendor:sdl3"
 import vk "vendor:vulkan"
+
+TRACY_ENABLE :: #config(TRACY_ENABLE, false)
 
 Game :: struct {
 	window:              ^sdl.Window,
@@ -33,7 +36,7 @@ Game :: struct {
 run :: proc() {
 	context.allocator = runtime.default_allocator()
 
-	when ODIN_DEBUG || (ODIN_OPTIMIZATION_MODE == .Minimal) {
+	when (ODIN_DEBUG || (ODIN_OPTIMIZATION_MODE == .Minimal)) && !TRACY_ENABLE {
 		track: mem.Tracking_Allocator
 		mem.tracking_allocator_init(
 			&track,
@@ -56,6 +59,15 @@ run :: proc() {
 			}
 			mem.tracking_allocator_destroy(&track)
 		}
+	}
+
+	when TRACY_ENABLE {
+		context.allocator = tracy.MakeProfiledAllocator(
+			self = &tracy.ProfiledAllocatorData{},
+			callstack_size = 5,
+			backing_allocator = context.allocator,
+			secure = true,
+		)
 	}
 
 	game := new(Game)
@@ -146,6 +158,7 @@ run_loop :: proc(game: ^Game) {
 	last_fps: f64
 
 	main_loop: for {
+		defer tracy.FrameMark("Main Loop")
 		last = now
 		now = sdl.GetPerformanceCounter()
 		dt_ms := f32((now - last) * 1000) / f32(sdl.GetPerformanceFrequency())
