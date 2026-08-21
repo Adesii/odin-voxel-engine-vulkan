@@ -20,3 +20,15 @@ run:
 
 run-debug:
   bin/voxel -debug
+
+run-debug-profiling:
+  odin build src -out:bin/voxel -debug -define:TRACY_ENABLE=true
+  bin/voxel -debug
+
+run-release:
+  odin build src -out:bin/voxel -o:speed
+  bin/voxel
+run-release-fresh:
+  rm saves/delta_core_mvp.world
+  odin build src -out:bin/voxel -o:speed
+  bin/voxel
