@@ -60,7 +60,7 @@ pack_terrain_color :: proc(r, g, b: u8) -> u32 {
 terrain_biome_color :: proc(biome: Biome) -> u32 {
 	switch biome {
 	case .BARREN_PLAINS:
-		return pack_terrain_color(126, 107, 73)
+		return pack_voxel_color(102, 88, 70)
 	case .ROLLING_WASTES:
 		return pack_terrain_color(117, 82, 55)
 	case .OIL_BASIN:
@@ -106,9 +106,9 @@ sample_natural_terrain :: proc(terrain: ^Natural_Terrain, x, z: f32) -> heightfi
 	height += terrain_feature_height(&terrain.plan, x, z)
 	height += crater_wall_height(terrain, x, z)
 	return {
-		height             = height,
+		height = height,
 		mountain_influence = field.mountain_influence,
-		material           = u32(field.biome),
+		material = u32(field.biome),
 	}
 }
 

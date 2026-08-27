@@ -6,6 +6,7 @@ import voxel_terrain "../../engine/terrain/voxel"
 Material :: enum u16 {
 	AIR,
 	SURFACE_ROCK,
+	SURFACE_ROCK_ROLLING,
 	ROCK,
 	IRON_ORE,
 	COPPER_ORE,
@@ -36,8 +37,16 @@ pack_voxel_color :: proc "contextless" (r, g, b: u8) -> u32 {
 MATERIAL_DEFINITIONS := [?]Material_Definition {
 	{name = "Air", base_color = 0, variation_strength = 0},
 	{
-		name = "Surface Rock",
+		name = "Surface Rock (Barren Plains)",
 		base_color = pack_voxel_color(102, 88, 70),
+		variation_strength = 0.18,
+		hardness = 1.2,
+		density = 2.4,
+		flags = {.MINABLE},
+	},
+	{
+		name = "Surface Rock (Rolling Wastes)",
+		base_color = pack_voxel_color(117, 82, 55),
 		variation_strength = 0.18,
 		hardness = 1.2,
 		density = 2.4,
@@ -121,9 +130,17 @@ terrain_render_materials :: proc() -> [len(Biome)]terrain_renderer.Material_Rend
 voxel_column_sample :: proc(data: rawptr, x, z: f32) -> voxel_terrain.Column_Sample {
 	terrain := cast(^Natural_Terrain)data
 	sample := sample_natural_terrain(terrain, x, z)
+	material := material_id(.SURFACE_ROCK)
+	#partial switch Biome(sample.material) {
+	case .BARREN_PLAINS:
+		material = material_id(.SURFACE_ROCK)
+	case .ROLLING_WASTES:
+		material = material_id(.SURFACE_ROCK_ROLLING)
+
+	}
 	return {
 		surface_height = sample.height,
-		surface_material = material_id(.SURFACE_ROCK),
+		surface_material = material,
 		subsurface_material = material_id(.ROCK),
 	}
 }
