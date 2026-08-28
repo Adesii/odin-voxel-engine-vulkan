@@ -18,9 +18,16 @@ MAX_OVERRIDE_TABLE_SLOTS :: 16_384
 MAX_GPU_SAMPLES :: heightfield.MAX_LOD_LEVELS * 1024 * 1024
 MAX_GPU_CHUNKS :: 2_048
 MAX_GPU_BRICKS :: MAX_GPU_CHUNKS * voxel_terrain.BRICKS_PER_CHUNK
-MAX_GPU_VOXELS :: 16 * 1_024 * 1_024
+VOXEL_MATERIALS_PER_WORD :: 4
+GPU_VOXEL_WORDS_PER_BRICK :: voxel_terrain.VOXELS_PER_BRICK / VOXEL_MATERIALS_PER_WORD
+MAX_GPU_VOXEL_WORDS :: MAX_GPU_BRICKS * GPU_VOXEL_WORDS_PER_BRICK
 MAX_GPU_CHUNK_TABLE_SLOTS :: 8_192
 MAX_GPU_MATERIALS :: 64
+
+Backend :: enum u32 {
+	RAYMARCH,
+	MESH_SHADER,
+}
 
 Debug_Mode :: enum u32 {
 	NORMAL,
@@ -54,6 +61,7 @@ Material_Render_Info :: struct {
 }
 
 Config :: struct {
+	backend:                          Backend,
 	near_voxel_distance:              f32,
 	voxel_transition_width:           f32,
 	heightfield_lod_end_distances:    [3]f32,
@@ -67,6 +75,7 @@ Config :: struct {
 valid_config :: proc(config: Config) -> bool {
 
 	return(
+		(config.backend == .RAYMARCH || config.backend == .MESH_SHADER) &&
 		config.near_voxel_distance > 0 &&
 		config.voxel_transition_width >= 0 &&
 		config.voxel_transition_width < config.near_voxel_distance &&
@@ -86,6 +95,8 @@ valid_config :: proc(config: Config) -> bool {
 
 Traversal_Stats :: struct {
 	sampled_rays:                     u32,
+	average_voxel_cells:              f32,
+	maximum_voxel_cells:              u32,
 	average_heightfield_cells:        f32,
 	maximum_heightfield_cells:        u32,
 	average_heightfield_hit_distance: f32,
@@ -125,6 +136,7 @@ Context :: struct {
 	pipeline:                  vk.Pipeline,
 	shader_module:             vk.ShaderModule,
 	outputs:                   [vulkan.MAX_FRAMES_IN_FLIGHT]vulkan.Image,
+	linear_depth_outputs:      [vulkan.MAX_FRAMES_IN_FLIGHT]vulkan.Image,
 	output_layouts:            [vulkan.MAX_FRAMES_IN_FLIGHT]vk.ImageLayout,
 	output_extent:             [2]u32,
 	override_table:            []bindings.SparseVoxel,
@@ -138,6 +150,10 @@ Context :: struct {
 	stats_ready:               [vulkan.MAX_FRAMES_IN_FLIGHT]bool,
 	stats:                     Traversal_Stats,
 	chunk_table_mask:          u32,
+	mesh:                      Mesh_Context,
+	timestamp_query_pool:      vk.QueryPool,
+	timestamp_ready:           [vulkan.MAX_FRAMES_IN_FLIGHT]bool,
+	gpu_time_ms:               f32,
 }
 
 Frame_Input :: struct {
@@ -169,6 +185,7 @@ init :: proc(ctx: ^Context, r: ^vulkan.Renderer) {
 		{binding = bindings.TERRAIN_BINDING_G_MATERIALS, type = .STORAGE_BUFFER},
 		{binding = bindings.TERRAIN_BINDING_G_OUTPUTFRAMEBUFFER, type = .STORAGE_IMAGE},
 		{binding = bindings.TERRAIN_BINDING_G_TRAVERSALSTATS, type = .STORAGE_BUFFER},
+		{binding = bindings.TERRAIN_BINDING_G_OUTPUTLINEARDEPTH, type = .STORAGE_IMAGE},
 	}
 	ctx.descriptor_layout = vulkan.create_descriptor_set_layout(r, {.COMPUTE}, bindings_desc[:])
 	ctx.pipeline_layout = vulkan.create_pipeline_layout(r, ctx.descriptor_layout)
@@ -211,7 +228,7 @@ init :: proc(ctx: ^Context, r: ^vulkan.Renderer) {
 		)
 		ctx.voxel_material_buffers[index] = vulkan.create_buffer(
 			r,
-			MAX_GPU_VOXELS * size_of(u32),
+			MAX_GPU_VOXEL_WORDS * size_of(u32),
 			{.STORAGE_BUFFER},
 			{.HOST_VISIBLE, .HOST_COHERENT},
 		)
@@ -239,6 +256,18 @@ init :: proc(ctx: ^Context, r: ^vulkan.Renderer) {
 	ctx.voxel_chunk_table = make([]bindings.VoxelChunkSlot, MAX_GPU_CHUNK_TABLE_SLOTS)
 	ctx.uploaded_generation = {~u64(0), ~u64(0)}
 	ctx.uploaded_edit_count = {~u64(0), ~u64(0)}
+	mesh_init(ctx, r)
+	if r.timestamp_supported {
+		query_info := vk.QueryPoolCreateInfo {
+			sType      = .QUERY_POOL_CREATE_INFO,
+			queryType  = .TIMESTAMP,
+			queryCount = vulkan.MAX_FRAMES_IN_FLIGHT * 2,
+		}
+		vulkan.VK_CHECK(
+			vk.CreateQueryPool(r.device, &query_info, nil, &ctx.timestamp_query_pool),
+			"vkCreateQueryPool(terrain timestamps)",
+		)
+	}
 	create_output(ctx, r)
 	reload_shader(ctx, r)
 }
@@ -252,7 +281,7 @@ create_output :: proc(ctx: ^Context, r: ^vulkan.Renderer) {
 			width,
 			height,
 			r.surface_format.format,
-			{.STORAGE, .SAMPLED},
+			{.STORAGE, .SAMPLED, .COLOR_ATTACHMENT},
 			{.DEVICE_LOCAL},
 		)
 		command_buffer := vulkan.begin_single_use_commands(r)
@@ -298,15 +327,67 @@ create_output :: proc(ctx: ^Context, r: ^vulkan.Renderer) {
 			sampler    = vulkan.create_sampler(r, .LINEAR, .CLAMP_TO_EDGE),
 			allocation = allocation,
 		}
+		depth_image, depth_allocation := vulkan.create_image(
+			r,
+			width,
+			height,
+			.R32_SFLOAT,
+			{.STORAGE},
+			{.DEVICE_LOCAL},
+		)
+		depth_commands := vulkan.begin_single_use_commands(r)
+		depth_barrier := vk.ImageMemoryBarrier {
+			sType = .IMAGE_MEMORY_BARRIER,
+			oldLayout = .UNDEFINED,
+			newLayout = .GENERAL,
+			srcQueueFamilyIndex = vk.QUEUE_FAMILY_IGNORED,
+			dstQueueFamilyIndex = vk.QUEUE_FAMILY_IGNORED,
+			image = depth_image,
+			subresourceRange = {aspectMask = {.COLOR}, levelCount = 1, layerCount = 1},
+			dstAccessMask = {.SHADER_WRITE},
+		}
+		vk.CmdPipelineBarrier(
+			depth_commands,
+			{.TOP_OF_PIPE},
+			{.COMPUTE_SHADER},
+			{},
+			0,
+			nil,
+			0,
+			nil,
+			1,
+			&depth_barrier,
+		)
+		vulkan.end_single_use_commands(r, depth_commands)
+		depth_view_info := vk.ImageViewCreateInfo {
+			sType = .IMAGE_VIEW_CREATE_INFO,
+			image = depth_image,
+			viewType = .D2,
+			format = .R32_SFLOAT,
+			subresourceRange = {aspectMask = {.COLOR}, levelCount = 1, layerCount = 1},
+		}
+		depth_view: vk.ImageView
+		vulkan.VK_CHECK(
+			vk.CreateImageView(r.device, &depth_view_info, nil, &depth_view),
+			"vkCreateImageView(terrain linear depth)",
+		)
+		ctx.linear_depth_outputs[index] = {
+			image      = depth_image,
+			view       = depth_view,
+			allocation = depth_allocation,
+		}
 		ctx.output_layouts[index] = .GENERAL
 	}
 	ctx.output_extent = {width, height}
+	mesh_create_output(ctx, r)
 	update_descriptors(ctx, r)
 }
 
 destroy_output :: proc(ctx: ^Context, r: ^vulkan.Renderer) {
+	mesh_destroy_output(ctx, r)
 	for index in 0 ..< vulkan.MAX_FRAMES_IN_FLIGHT {
 		vulkan.destroy_image(r, &ctx.outputs[index])
+		vulkan.destroy_image(r, &ctx.linear_depth_outputs[index])
 		ctx.output_layouts[index] = .UNDEFINED
 	}
 	ctx.output_extent = {}
@@ -332,6 +413,7 @@ reload_shader :: proc(ctx: ^Context, r: ^vulkan.Renderer) {
 		bindings.TERRAIN_MAIN_ENTRY_POINT,
 		ctx.pipeline_layout,
 	)
+	mesh_reload_shader(ctx, r)
 }
 
 update_descriptors :: proc(ctx: ^Context, r: ^vulkan.Renderer) {
@@ -362,7 +444,7 @@ update_descriptors :: proc(ctx: ^Context, r: ^vulkan.Renderer) {
 		}
 		voxel_material_info := vk.DescriptorBufferInfo {
 			buffer = ctx.voxel_material_buffers[index].buffer,
-			range  = MAX_GPU_VOXELS * size_of(u32),
+			range  = MAX_GPU_VOXEL_WORDS * size_of(u32),
 		}
 		voxel_chunk_table_info := vk.DescriptorBufferInfo {
 			buffer = ctx.voxel_chunk_table_buffers[index].buffer,
@@ -380,7 +462,11 @@ update_descriptors :: proc(ctx: ^Context, r: ^vulkan.Renderer) {
 			imageView   = ctx.outputs[index].view,
 			imageLayout = .GENERAL,
 		}
-		writes := [11]vk.WriteDescriptorSet {
+		depth_image_info := vk.DescriptorImageInfo {
+			imageView   = ctx.linear_depth_outputs[index].view,
+			imageLayout = .GENERAL,
+		}
+		writes := [12]vk.WriteDescriptorSet {
 			{
 				sType = .WRITE_DESCRIPTOR_SET,
 				dstSet = ctx.descriptor_sets[index],
@@ -468,6 +554,14 @@ update_descriptors :: proc(ctx: ^Context, r: ^vulkan.Renderer) {
 				descriptorCount = 1,
 				descriptorType = .STORAGE_BUFFER,
 				pBufferInfo = &stats_info,
+			},
+			{
+				sType = .WRITE_DESCRIPTOR_SET,
+				dstSet = ctx.descriptor_sets[index],
+				dstBinding = bindings.TERRAIN_BINDING_G_OUTPUTLINEARDEPTH,
+				descriptorCount = 1,
+				descriptorType = .STORAGE_IMAGE,
+				pImageInfo = &depth_image_info,
 			},
 		}
 		vk.UpdateDescriptorSets(r.device, len(writes), &writes[0], 0, nil)
@@ -583,18 +677,23 @@ build_voxel_buffers :: proc(ctx: ^Context, world: ^voxel_terrain.World) {
 			}
 			if brick.kind == .MIXED {
 				gpu_brick.voxelOffset = u32(len(ctx.voxel_materials))
-				for index in 0 ..< voxel_terrain.VOXELS_PER_BRICK {
-					append(
-						&ctx.voxel_materials,
-						u32(chunk.detailed_voxels[int(brick.voxel_offset) + index]),
-					)
+				for word_index in 0 ..< GPU_VOXEL_WORDS_PER_BRICK {
+					packed: u32
+					for lane in 0 ..< VOXEL_MATERIALS_PER_WORD {
+						index := word_index * VOXEL_MATERIALS_PER_WORD + lane
+						material := u32(chunk.detailed_voxels[int(brick.voxel_offset) + index])
+						assert(material < 256, "Rendered voxel material ID exceeds packed range")
+						packed |= material << u32(lane * 8)
+					}
+					append(&ctx.voxel_materials, packed)
 				}
 			}
 			append(&ctx.voxel_bricks, gpu_brick)
 		}
 	}
 	assert(len(ctx.voxel_bricks) <= MAX_GPU_BRICKS, "Resident voxel brick GPU capacity exceeded")
-	assert(len(ctx.voxel_materials) <= MAX_GPU_VOXELS, "Detailed voxel GPU capacity exceeded")
+	assert(len(ctx.voxel_materials) <= MAX_GPU_VOXEL_WORDS, "Detailed voxel GPU capacity exceeded")
+	mesh_build_bricks(ctx, world)
 	if len(ctx.voxel_chunks) == 0 {
 		ctx.chunk_table_mask = 0
 		world.stats.gpu_bytes = 0
@@ -622,7 +721,8 @@ build_voxel_buffers :: proc(ctx: ^Context, world: ^voxel_terrain.World) {
 		len(ctx.voxel_chunks) * size_of(bindings.VoxelChunk) +
 		len(ctx.voxel_bricks) * size_of(bindings.VoxelBrick) +
 		len(ctx.voxel_materials) * size_of(u32) +
-		int(capacity) * size_of(bindings.VoxelChunkSlot),
+		int(capacity) * size_of(bindings.VoxelChunkSlot) +
+		len(ctx.mesh.bricks) * 16,
 	)
 }
 
@@ -675,10 +775,12 @@ update_traversal_stats :: proc(ctx: ^Context, r: ^vulkan.Renderer, frame_index: 
 		raw: bindings.TerrainTraversalStats
 		vulkan.read_buffer(r, &ctx.stats_buffers[frame_index], &raw, size_of(raw))
 		average_cells: f32
+		average_voxel_cells: f32
 		average_hit_distance: f32
 		average_lod_cells: [3]f32
 		if raw.sampledRays > 0 {
 			average_cells = f32(raw.heightfieldCellVisits) / f32(raw.sampledRays)
+			average_voxel_cells = f32(raw.voxelCellVisits) / f32(raw.sampledRays)
 		}
 		if raw.heightfieldHits > 0 {
 			average_hit_distance = f32(raw.heightfieldHitDistanceMeters) / f32(raw.heightfieldHits)
@@ -694,6 +796,8 @@ update_traversal_stats :: proc(ctx: ^Context, r: ^vulkan.Renderer, frame_index: 
 		}
 		ctx.stats = {
 			sampled_rays                     = raw.sampledRays,
+			average_voxel_cells              = average_voxel_cells,
+			maximum_voxel_cells              = raw.maxVoxelCellVisits,
 			average_heightfield_cells        = average_cells,
 			maximum_heightfield_cells        = raw.maxHeightfieldCellVisits,
 			average_heightfield_hit_distance = average_hit_distance,
@@ -793,6 +897,7 @@ update_frame_data :: proc(
 			statsSampleStride = input.config.stats_sample_stride,
 			overrideBoundsMax = bounds_max,
 			heightfieldTransitionWidth = input.config.heightfield_lod_transition_width,
+			terrainBackend = u32(input.config.backend),
 		},
 	}
 	render_materials: [MAX_GPU_MATERIALS]Material_Render_Info
@@ -828,6 +933,26 @@ update_frame_data :: proc(
 	}
 }
 
+update_gpu_timing :: proc(ctx: ^Context, r: ^vulkan.Renderer, frame_index: int) {
+	if ctx.timestamp_query_pool == {} || !ctx.timestamp_ready[frame_index] {
+		return
+	}
+	timestamps: [2]u64
+	result := vk.GetQueryPoolResults(
+		r.device,
+		ctx.timestamp_query_pool,
+		u32(frame_index * 2),
+		2,
+		size_of(timestamps),
+		&timestamps,
+		size_of(u64),
+		{._64},
+	)
+	if result == .SUCCESS && timestamps[1] >= timestamps[0] {
+		ctx.gpu_time_ms = f32(timestamps[1] - timestamps[0]) * r.timestamp_period_ns / 1_000_000
+	}
+}
+
 record_frame :: proc(
 	data: rawptr,
 	r: ^vulkan.Renderer,
@@ -841,6 +966,12 @@ record_frame :: proc(
 	output := &ctx.outputs[frame_index]
 	output_layout := &ctx.output_layouts[frame_index]
 	update_frame_data(ctx, r, input, frame_index)
+	update_gpu_timing(ctx, r, frame_index)
+	if ctx.timestamp_query_pool != {} {
+		query_index := u32(frame_index * 2)
+		vk.CmdResetQueryPool(command_buffer, ctx.timestamp_query_pool, query_index, 2)
+		vk.CmdWriteTimestamp(command_buffer, {.TOP_OF_PIPE}, ctx.timestamp_query_pool, query_index)
+	}
 	if output_layout^ == .SHADER_READ_ONLY_OPTIMAL {
 		to_general := vk.ImageMemoryBarrier {
 			sType = .IMAGE_MEMORY_BARRIER,
@@ -880,34 +1011,76 @@ record_frame :: proc(
 	group_x := (ctx.output_extent.x + bindings.TERRAIN_THREAD_X - 1) / bindings.TERRAIN_THREAD_X
 	group_y := (ctx.output_extent.y + bindings.TERRAIN_THREAD_Y - 1) / bindings.TERRAIN_THREAD_Y
 	vk.CmdDispatch(command_buffer, group_x, group_y, 1)
-	to_sampled := vk.ImageMemoryBarrier {
-		sType = .IMAGE_MEMORY_BARRIER,
-		oldLayout = .GENERAL,
-		newLayout = .SHADER_READ_ONLY_OPTIMAL,
-		srcQueueFamilyIndex = vk.QUEUE_FAMILY_IGNORED,
-		dstQueueFamilyIndex = vk.QUEUE_FAMILY_IGNORED,
-		image = output.image,
-		subresourceRange = {aspectMask = {.COLOR}, levelCount = 1, layerCount = 1},
-		srcAccessMask = {.SHADER_WRITE},
-		dstAccessMask = {.SHADER_READ},
+	if input.config.backend == .MESH_SHADER {
+		assert(
+			mesh_backend_supported(ctx),
+			"VK_EXT_mesh_shader is unavailable or below terrain budgets",
+		)
+		to_attachment := vk.ImageMemoryBarrier {
+			sType = .IMAGE_MEMORY_BARRIER,
+			oldLayout = .GENERAL,
+			newLayout = .COLOR_ATTACHMENT_OPTIMAL,
+			srcQueueFamilyIndex = vk.QUEUE_FAMILY_IGNORED,
+			dstQueueFamilyIndex = vk.QUEUE_FAMILY_IGNORED,
+			image = output.image,
+			subresourceRange = {aspectMask = {.COLOR}, levelCount = 1, layerCount = 1},
+			srcAccessMask = {.SHADER_WRITE},
+			dstAccessMask = {.COLOR_ATTACHMENT_READ, .COLOR_ATTACHMENT_WRITE},
+		}
+		vk.CmdPipelineBarrier(
+			command_buffer,
+			{.COMPUTE_SHADER},
+			{.COLOR_ATTACHMENT_OUTPUT},
+			{},
+			0,
+			nil,
+			0,
+			nil,
+			1,
+			&to_attachment,
+		)
+		mesh_record_frame(ctx, r, input, command_buffer, frame_index)
+	} else {
+		to_sampled := vk.ImageMemoryBarrier {
+			sType = .IMAGE_MEMORY_BARRIER,
+			oldLayout = .GENERAL,
+			newLayout = .SHADER_READ_ONLY_OPTIMAL,
+			srcQueueFamilyIndex = vk.QUEUE_FAMILY_IGNORED,
+			dstQueueFamilyIndex = vk.QUEUE_FAMILY_IGNORED,
+			image = output.image,
+			subresourceRange = {aspectMask = {.COLOR}, levelCount = 1, layerCount = 1},
+			srcAccessMask = {.SHADER_WRITE},
+			dstAccessMask = {.SHADER_READ},
+		}
+		vk.CmdPipelineBarrier(
+			command_buffer,
+			{.COMPUTE_SHADER},
+			{.FRAGMENT_SHADER},
+			{},
+			0,
+			nil,
+			0,
+			nil,
+			1,
+			&to_sampled,
+		)
+		output_layout^ = .SHADER_READ_ONLY_OPTIMAL
 	}
-	vk.CmdPipelineBarrier(
-		command_buffer,
-		{.COMPUTE_SHADER},
-		{.FRAGMENT_SHADER},
-		{},
-		0,
-		nil,
-		0,
-		nil,
-		1,
-		&to_sampled,
-	)
-	output_layout^ = .SHADER_READ_ONLY_OPTIMAL
+	if ctx.timestamp_query_pool != {} {
+		query_index := u32(frame_index * 2)
+		vk.CmdWriteTimestamp(
+			command_buffer,
+			{.BOTTOM_OF_PIPE},
+			ctx.timestamp_query_pool,
+			query_index + 1,
+		)
+		ctx.timestamp_ready[frame_index] = true
+	}
 }
 
 destroy :: proc(ctx: ^Context, r: ^vulkan.Renderer) {
 	_ = vk.DeviceWaitIdle(r.device)
+	mesh_destroy(ctx, r)
 	for index in 0 ..< vulkan.MAX_FRAMES_IN_FLIGHT {
 		vulkan.destroy_buffer(r, &ctx.uniform_buffers[index])
 		vulkan.destroy_buffer(r, &ctx.level_buffers[index])
@@ -929,6 +1102,8 @@ destroy :: proc(ctx: ^Context, r: ^vulkan.Renderer) {
 	destroy_output(ctx, r)
 	if ctx.pipeline != {} {vk.DestroyPipeline(r.device, ctx.pipeline, nil)}
 	if ctx.shader_module != {} {vk.DestroyShaderModule(r.device, ctx.shader_module, nil)}
+	if ctx.timestamp_query_pool !=
+	   {} {vk.DestroyQueryPool(r.device, ctx.timestamp_query_pool, nil)}
 	if ctx.pipeline_layout != {} {vk.DestroyPipelineLayout(r.device, ctx.pipeline_layout, nil)}
 	if ctx.descriptor_layout !=
 	   {} {vk.DestroyDescriptorSetLayout(r.device, ctx.descriptor_layout, nil)}

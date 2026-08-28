@@ -34,6 +34,9 @@ TerrainSettings :: struct #align(16) {
 	statsSampleStride: u32, // offset: 140, size: 4
 	overrideBoundsMax: [3]f32, // offset: 144, size: 12
 	heightfieldTransitionWidth: f32, // offset: 156, size: 4
+	terrainBackend: u32, // offset: 160, size: 4
+	_pad_176: [12]u8,
+	_padding: [3]u32, // offset: 176, size: 12
 }
 
 TerrainLevel :: struct #align(16) {
@@ -104,6 +107,9 @@ TerrainTraversalStats :: struct #align(16) {
 	heightfieldOnlyHits: u32, // offset: 60, size: 4
 	blendedHits: u32, // offset: 64, size: 4
 	missedRays: u32, // offset: 68, size: 4
+	voxelCellVisits: u32, // offset: 72, size: 4
+	maxVoxelCellVisits: u32, // offset: 76, size: 4
+	_padding: [2]u32, // offset: 80, size: 8
 }
 
 // --- TERRAIN Pipeline Constants ---
@@ -111,7 +117,7 @@ TERRAIN_MAIN_ENTRY_POINT :: "main"
 TERRAIN_THREAD_X :: 8
 TERRAIN_THREAD_Y :: 8
 TERRAIN_THREAD_Z :: 1
-TERRAIN_UNIFORM_BUFFER_SIZE :: 304
+TERRAIN_UNIFORM_BUFFER_SIZE :: 336
 TERRAIN_BINDING_G_CAMERA :: 0
 TERRAIN_BINDING_G_SETTINGS :: 0
 TERRAIN_BINDING_G_LEVELS :: 1
@@ -124,3 +130,4 @@ TERRAIN_BINDING_G_VOXELCHUNKTABLE :: 7
 TERRAIN_BINDING_G_MATERIALS :: 8
 TERRAIN_BINDING_G_OUTPUTFRAMEBUFFER :: 9
 TERRAIN_BINDING_G_TRAVERSALSTATS :: 10
+TERRAIN_BINDING_G_OUTPUTLINEARDEPTH :: 11

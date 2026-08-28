@@ -226,7 +226,7 @@ regional_ore_material :: proc(
 	position: [3]f32,
 	depth: f32,
 ) -> Material {
-	if depth < 1.5 || depth > terrain.config.voxel_generation_depth - 1 {
+	if depth < 1.5 || depth > terrain.config.ore_generation_depth - 1 {
 		return .ROCK
 	}
 	warp :=
@@ -271,8 +271,10 @@ voxel_natural_sample :: proc(
 	position: [3]f32,
 	column: voxel_terrain.Column_Sample,
 ) -> voxel_terrain.Material_Id {
-	_ = voxel
 	terrain := cast(^Natural_Terrain)data
+	if terrain.config.world_type != .DELTA_CORE {
+		return sample_benchmark_voxel(terrain, voxel, position, column)
+	}
 	if position.y > column.surface_height {
 		return voxel_terrain.AIR
 	}
@@ -298,15 +300,3 @@ voxel_source :: proc(terrain: ^Natural_Terrain) -> voxel_terrain.Source {
 	}
 }
 
-voxel_config :: proc(config: World_Config) -> voxel_terrain.Config {
-	return {
-		voxel_size = config.base_voxel_size,
-		residency_radius = config.voxel_residency_radius,
-		render_radius = config.voxel_render_radius,
-		transition_width = config.voxel_transition_width,
-		generation_depth = config.voxel_generation_depth,
-		generation_height_above_surface = config.voxel_generation_height_above_surface,
-		column_sample_stride = config.voxel_column_sample_stride,
-		max_chunks_per_update = config.voxel_chunks_per_frame,
-	}
-}

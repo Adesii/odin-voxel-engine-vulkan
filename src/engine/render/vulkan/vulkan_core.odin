@@ -77,6 +77,18 @@ fullscreen_object :: struct {
 	descriptor_sets:   [MAX_FRAMES_IN_FLIGHT]vk.DescriptorSet,
 	descriptor_layout: vk.DescriptorSetLayout,
 }
+
+Mesh_Shader_Capabilities :: struct {
+	supported:                       bool,
+	task_shader:                     bool,
+	max_work_group_total_count:      u32,
+	max_work_group_count:            [3]u32,
+	max_work_group_invocations:      u32,
+	max_work_group_size:             [3]u32,
+	max_output_vertices:             u32,
+	max_output_primitives:           u32,
+	max_preferred_group_invocations: u32,
+}
 Renderer :: struct {
 	instance:             vk.Instance,
 	debug_messenger:      vk.DebugUtilsMessengerEXT,
@@ -107,6 +119,9 @@ Renderer :: struct {
 	frame_index:          int,
 	framebuffer_resized:  bool,
 	window:               ^sdl.Window,
+	mesh_shader:          Mesh_Shader_Capabilities,
+	timestamp_supported:  bool,
+	timestamp_period_ns:  f32,
 }
 
 

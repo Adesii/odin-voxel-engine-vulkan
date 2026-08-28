@@ -115,9 +115,10 @@ draw_world_plan_map :: proc(game: ^Game, ctx: ^mu.Context, rect: mu.Rect) {
 
 draw_voxel_residency_map :: proc(game: ^Game, ctx: ^mu.Context, rect: mu.Rect) {
 	mu.draw_rect(ctx, rect, {10, 12, 16, 255})
-	config := game.world.terrain.config
-	radius := config.voxel_residency_radius
-	chunk_size := f32(32) * config.base_voxel_size
+	world_config := game.world.terrain.config
+	voxel_config := game.render_config.world_representation.voxels
+	radius := voxel_config.residency_radius
+	chunk_size := f32(32) * world_config.base_voxel_size
 	camera_xz := [2]f32{game.camera.position.x, game.camera.position.z}
 	for coord in game.world.voxels.chunks {
 		center := [2]f32{(f32(coord.x) + 0.5) * chunk_size, (f32(coord.z) + 0.5) * chunk_size}
@@ -155,6 +156,8 @@ build_world_debug_ui :: proc(game: ^Game, ctx: ^mu.Context) {
 		return
 	}
 	config := game.world.terrain.config
+	terrain_config := game.render_config.terrain
+	voxel_config := game.render_config.world_representation.voxels
 	plan := &game.world.terrain.plan
 	mu.text(
 		ctx,
@@ -218,9 +221,9 @@ build_world_debug_ui :: proc(game: ^Game, ctx: ^mu.Context) {
 		fmt.tprintf(
 			"voxel %.2fm resident %.0fm render %.0fm overlap %.0fm",
 			config.base_voxel_size,
-			config.voxel_residency_radius,
-			config.voxel_render_radius,
-			config.voxel_transition_width,
+			voxel_config.residency_radius,
+			terrain_config.near_voxel_distance,
+			terrain_config.voxel_transition_width,
 		),
 	)
 	mu.text(
@@ -268,7 +271,7 @@ build_world_debug_ui :: proc(game: ^Game, ctx: ^mu.Context) {
 			stats.persistent_edits,
 		),
 	)
-	mu.text(ctx, fmt.tprintf("far terrain %.0fkm", config.render_distance / 1000))
+	mu.text(ctx, fmt.tprintf("far terrain %.0fkm", terrain_config.far_distance / 1000))
 	mu.layout_row(ctx, {-1}, 180)
 	voxel_map_rect := mu.layout_next(ctx)
 	draw_voxel_residency_map(game, ctx, voxel_map_rect)

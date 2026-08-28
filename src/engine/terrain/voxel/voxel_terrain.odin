@@ -67,8 +67,6 @@ Source :: struct {
 Config :: struct {
 	voxel_size:                      f32,
 	residency_radius:                f32,
-	render_radius:                   f32,
-	transition_width:                f32,
 	generation_depth:                f32,
 	generation_height_above_surface: f32,
 	column_sample_stride:            u32,
@@ -127,9 +125,7 @@ Ray_Hit :: struct {
 valid_config :: proc(config: Config) -> bool {
 	return(
 		config.voxel_size > 0 &&
-		config.residency_radius > config.render_radius &&
-		config.render_radius > config.transition_width &&
-		config.transition_width >= 0 &&
+		config.residency_radius > 0 &&
 		config.generation_depth > 0 &&
 		config.generation_height_above_surface >= 0 &&
 		config.column_sample_stride > 0 &&

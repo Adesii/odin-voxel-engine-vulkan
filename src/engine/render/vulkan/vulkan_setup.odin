@@ -270,6 +270,28 @@ create_descriptor_pool :: proc(r: ^Renderer) {
 		"vkCreateDescriptorPool",
 	)
 }
+device_extension_supported :: proc(device: vk.PhysicalDevice, wanted: string) -> bool {
+	count: u32
+	VK_CHECK(
+		vk.EnumerateDeviceExtensionProperties(device, nil, &count, nil),
+		"vkEnumerateDeviceExtensionProperties(count)",
+	)
+	if count == 0 {
+		return false
+	}
+	properties := make([]vk.ExtensionProperties, int(count), context.temp_allocator)
+	VK_CHECK(
+		vk.EnumerateDeviceExtensionProperties(device, nil, &count, raw_data(properties)),
+		"vkEnumerateDeviceExtensionProperties",
+	)
+	for &property in properties {
+		if string(cstring(raw_data(&property.extensionName))) == wanted {
+			return true
+		}
+	}
+	return false
+}
+
 create_device :: proc(r: ^Renderer) {
 	queue_priority := f32(1)
 	queue_infos: [2]vk.DeviceQueueCreateInfo
@@ -289,6 +311,7 @@ create_device :: proc(r: ^Renderer) {
 		}
 		queue_info_count = 2
 	}
+
 	available_features: vk.PhysicalDeviceFeatures
 	vk.GetPhysicalDeviceFeatures(r.physical_device, &available_features)
 	if !available_features.robustBufferAccess ||
@@ -297,30 +320,76 @@ create_device :: proc(r: ^Renderer) {
 	   !available_features.shaderStorageImageWriteWithoutFormat {
 		fmt.panicf("Selected Vulkan device lacks required terrain compute features")
 	}
-	// 1. Core 1.2 Features Setup
+
+	mesh_query := vk.PhysicalDeviceMeshShaderFeaturesEXT {
+		sType = .PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT,
+	}
+	feature_query := vk.PhysicalDeviceFeatures2 {
+		sType = .PHYSICAL_DEVICE_FEATURES_2,
+		pNext = &mesh_query,
+	}
+	vk.GetPhysicalDeviceFeatures2(r.physical_device, &feature_query)
+	mesh_extension_available := device_extension_supported(
+		r.physical_device,
+		vk.EXT_MESH_SHADER_EXTENSION_NAME,
+	)
+	mesh_supported :=
+		mesh_extension_available &&
+		bool(mesh_query.meshShader) &&
+		bool(available_features.vertexPipelineStoresAndAtomics)
+	properties: vk.PhysicalDeviceProperties
+	vk.GetPhysicalDeviceProperties(r.physical_device, &properties)
+	r.timestamp_supported = bool(properties.limits.timestampComputeAndGraphics)
+	r.timestamp_period_ns = properties.limits.timestampPeriod
+	if mesh_supported {
+		mesh_properties := vk.PhysicalDeviceMeshShaderPropertiesEXT {
+			sType = .PHYSICAL_DEVICE_MESH_SHADER_PROPERTIES_EXT,
+		}
+		properties2 := vk.PhysicalDeviceProperties2 {
+			sType = .PHYSICAL_DEVICE_PROPERTIES_2,
+			pNext = &mesh_properties,
+		}
+		vk.GetPhysicalDeviceProperties2(r.physical_device, &properties2)
+		r.mesh_shader = {
+			supported                       = true,
+			task_shader                     = bool(mesh_query.taskShader),
+			max_work_group_total_count      = mesh_properties.maxMeshWorkGroupTotalCount,
+			max_work_group_count            = mesh_properties.maxMeshWorkGroupCount,
+			max_work_group_invocations      = mesh_properties.maxMeshWorkGroupInvocations,
+			max_work_group_size             = mesh_properties.maxMeshWorkGroupSize,
+			max_output_vertices             = mesh_properties.maxMeshOutputVertices,
+			max_output_primitives           = mesh_properties.maxMeshOutputPrimitives,
+			max_preferred_group_invocations = mesh_properties.maxPreferredMeshWorkGroupInvocations,
+		}
+	}
+
 	vulkan12_features := vk.PhysicalDeviceVulkan12Features {
 		sType               = .PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
 		bufferDeviceAddress = true,
-		pNext               = nil, // This terminates the chain
 	}
-
-	// 2. Core 1.1 Features Setup
 	vulkan11_features := vk.PhysicalDeviceVulkan11Features {
 		sType                = .PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
+		pNext                = &vulkan12_features,
 		shaderDrawParameters = true,
-		pNext                = &vulkan12_features, // Points forward to 1.2 features
 	}
-
-	// 3. Core 1.0 Features Container (Replaces old pEnabledFeatures pointer)
+	mesh_features := vk.PhysicalDeviceMeshShaderFeaturesEXT {
+		sType      = .PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT,
+		pNext      = &vulkan11_features,
+		meshShader = true,
+	}
 	features2 := vk.PhysicalDeviceFeatures2 {
 		sType = .PHYSICAL_DEVICE_FEATURES_2,
+		pNext = &vulkan11_features,
 		features = {
 			robustBufferAccess = true,
 			shaderInt64 = true,
 			shaderStorageImageReadWithoutFormat = true,
 			shaderStorageImageWriteWithoutFormat = true,
+			vertexPipelineStoresAndAtomics = b32(mesh_supported),
 		},
-		pNext = &vulkan11_features, // Points forward to 1.1 features
+	}
+	if mesh_supported {
+		features2.pNext = &mesh_features
 	}
 	when ODIN_DEBUG {
 		features2.features.vertexPipelineStoresAndAtomics = true
@@ -328,21 +397,23 @@ create_device :: proc(r: ^Renderer) {
 		features2.features.shaderInt16 = true
 		features2.features.shaderInt64 = true
 	}
-	extension_array := [2]cstring {
+
+	extension_array := [3]cstring {
 		cstring(vk.KHR_SWAPCHAIN_EXTENSION_NAME),
 		cstring(vk.KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME),
+		nil,
 	}
-
-	// when ODIN_DEBUG {
-	// 	append(&device_extensions, cstring(vk.EXT_DEBUG_MARKER_EXTENSION_NAME))
-	// }
-
+	extension_count := 2
+	if mesh_supported {
+		extension_array[extension_count] = cstring(vk.EXT_MESH_SHADER_EXTENSION_NAME)
+		extension_count += 1
+	}
 	create_info := vk.DeviceCreateInfo {
 		sType                   = .DEVICE_CREATE_INFO,
 		pNext                   = &features2,
 		queueCreateInfoCount    = u32(queue_info_count),
 		pQueueCreateInfos       = raw_data(&queue_infos),
-		enabledExtensionCount   = u32(len(extension_array)),
+		enabledExtensionCount   = u32(extension_count),
 		ppEnabledExtensionNames = raw_data(&extension_array),
 		pEnabledFeatures        = nil,
 	}

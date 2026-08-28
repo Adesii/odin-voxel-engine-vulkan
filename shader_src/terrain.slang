@@ -27,6 +27,8 @@ struct TerrainSettings {
   uint statsSampleStride;
   float3 overrideBoundsMax;
   float heightfieldTransitionWidth;
+  uint terrainBackend;
+  uint3 _padding;
 };
 
 struct TerrainLevel {
@@ -85,6 +87,7 @@ struct VoxelHit {
   int3 voxel;
   uint material;
   uint brickKind;
+  uint cellVisits;
 };
 
 struct HeightfieldHit {
@@ -120,6 +123,9 @@ struct TerrainTraversalStats {
   uint heightfieldOnlyHits;
   uint blendedHits;
   uint missedRays;
+  uint voxelCellVisits;
+  uint maxVoxelCellVisits;
+  uint2 _padding;
 };
 
 uniform CameraUniforms g_camera;
@@ -134,6 +140,7 @@ uniform StructuredBuffer<VoxelChunkSlot> g_voxelChunkTable;
 uniform StructuredBuffer<MaterialRenderInfo> g_materials;
 uniform RWTexture2D<float4> g_outputFramebuffer;
 uniform RWStructuredBuffer<TerrainTraversalStats> g_traversalStats;
+uniform RWTexture2D<float> g_outputLinearDepth;
 
 static const uint MATERIAL_FLAG_RESOURCE = 1u;
 static const uint BRICK_EMPTY = 0u;
@@ -141,6 +148,8 @@ static const uint BRICK_SOLID = 1u;
 static const uint BRICK_MIXED = 2u;
 static const int CHUNK_SIZE = 32;
 static const int BRICK_SIZE = 8;
+static const uint VOXEL_MATERIALS_PER_WORD = 4u;
+static const uint TERRAIN_BACKEND_RAYMARCH = 0u;
 static const uint DEBUG_NORMAL = 0u;
 static const uint DEBUG_LOD = 1u;
 static const uint DEBUG_MATERIAL = 2u;
@@ -243,7 +252,10 @@ bool sampleVoxel(int3 voxel, out uint material, out uint brickKind,
   int3 cell = local % BRICK_SIZE;
   uint cellIndex =
       uint(cell.z * BRICK_SIZE * BRICK_SIZE + cell.y * BRICK_SIZE + cell.x);
-  material = g_voxelMaterials[brick.voxelOffset + cellIndex];
+  uint packedMaterial =
+      g_voxelMaterials[brick.voxelOffset + cellIndex / VOXEL_MATERIALS_PER_WORD];
+  material =
+      (packedMaterial >> ((cellIndex % VOXEL_MATERIALS_PER_WORD) * 8u)) & 0xFFu;
   return material != 0;
 }
 
@@ -278,6 +290,7 @@ VoxelHit traceVoxels(Ray ray) {
   for (uint stepIndex = 0;
        stepIndex < 512 && distanceAlongRay <= g_settings.voxelRenderRadius;
        stepIndex++) {
+    result.cellVisits++;
     uint material;
     uint brickKind;
     bool resident;
@@ -703,6 +716,8 @@ void recordTraversalStats(uint2 pixelCoord, VoxelHit voxelHit,
     return;
 
   InterlockedAdd(g_traversalStats[0].sampledRays, 1u);
+  InterlockedAdd(g_traversalStats[0].voxelCellVisits, voxelHit.cellVisits);
+  InterlockedMax(g_traversalStats[0].maxVoxelCellVisits, voxelHit.cellVisits);
   InterlockedAdd(g_traversalStats[0].heightfieldCellVisits,
                  terrainHit.traversedCells);
   InterlockedMax(g_traversalStats[0].maxHeightfieldCellVisits,
@@ -752,7 +767,9 @@ void main(uint3 dispatchThreadID: SV_DispatchThreadID) {
   Ray ray = generateCameraRay(pixelCoord, float2(width, height));
   float3 sky = lerp(float3(0.13, 0.18, 0.24), float3(0.36, 0.48, 0.60),
                     saturate(ray.direction.y * 0.5 + 0.5));
-  VoxelHit voxelHit = traceVoxels(ray);
+  VoxelHit voxelHit = (VoxelHit)0;
+  if (g_settings.terrainBackend == TERRAIN_BACKEND_RAYMARCH)
+    voxelHit = traceVoxels(ray);
   HeightfieldHit terrainHit = traceHeightfield(ray, 0.0);
   float representationBlend = 0.0;
   if (voxelHit.hit && terrainHit.hit) {
@@ -812,4 +829,6 @@ void main(uint3 dispatchThreadID: SV_DispatchThreadID) {
     color = lerp(color, float3(0.95, 0.95, 0.95), 0.85);
   }
   g_outputFramebuffer[pixelCoord] = float4(color, 1.0);
+  g_outputLinearDepth[pixelCoord] =
+      hit ? distanceAlongRay : g_settings.maxDistance;
 }

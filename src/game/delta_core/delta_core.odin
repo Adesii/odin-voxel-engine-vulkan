@@ -11,6 +11,7 @@ import view "../../engine/view"
 import "base:runtime"
 import "core:fmt"
 import "core:mem"
+import "core:os"
 import mu "vendor:microui"
 import sdl "vendor:sdl3"
 import vk "vendor:vulkan"
@@ -25,12 +26,36 @@ Game :: struct {
 	camera:              view.Camera,
 	world:               World,
 	debug_mode:          terrain_renderer.Debug_Mode,
-	terrain_config:      terrain_renderer.Config,
+	render_config:       Render_Config,
 	show_world_plan:     bool,
 	held_keys:           map[sdl.Keycode]bool,
 	shader_watchers:     shader_tools.Watcher_Set,
 	last_mined_material: Material,
 	mined_resources:     [len(MATERIAL_DEFINITIONS)]u32,
+}
+
+startup_configs :: proc() -> (World_Config, Render_Config) {
+	world_type := World_Type.DELTA_CORE
+	backend := terrain_renderer.Backend.RAYMARCH
+	for argument in os.args {
+		switch argument {
+		case "--world=delta_core":
+			world_type = .DELTA_CORE
+		case "--world=flat":
+			world_type = .FLAT
+		case "--world=noise":
+			world_type = .NOISE
+		case "--world=stress":
+			world_type = .STRESS_TEST
+		case "--terrain=raymarch":
+			backend = .RAYMARCH
+		case "--terrain=mesh":
+			backend = .MESH_SHADER
+		case:
+		}
+	}
+	world := default_world_config(world_type = world_type)
+	return world, default_render_config(world, backend)
 }
 
 run :: proc() {
@@ -91,11 +116,12 @@ initialize :: proc(game: ^Game) {
 		fmt.panicf("Failed to create window: %v", sdl.GetError())
 	}
 
-	if !initialize_world(&game.world, default_world_config()) {
+	world_config, render_config := startup_configs()
+	game.render_config = render_config
+	assert(validate_render_config(world_config, game.render_config))
+	if !initialize_world(&game.world, world_config, game.render_config.world_representation) {
 		fmt.panicf("Failed to load or generate Delta Core world")
 	}
-	game.terrain_config = default_terrain_render_config(game.world.terrain.config)
-	assert(terrain_renderer.valid_config(game.terrain_config))
 	shader_tools.compile("shader_src/", "shaders/")
 	presentation_shader := shader_assets.load_bytes("default.spirv")
 	defer delete(presentation_shader)
@@ -109,6 +135,17 @@ initialize :: proc(game: ^Game) {
 		},
 	)
 	terrain_renderer.init(&game.terrain_render, &game.renderer)
+	if game.render_config.terrain.backend == .MESH_SHADER &&
+	   !terrain_renderer.mesh_backend_supported(&game.terrain_render) {
+		limits := game.renderer.mesh_shader
+		fmt.panicf(
+			"Mesh terrain requested but unavailable: VK_EXT_mesh_shader=%v vertices=%v primitives=%v invocations=%v",
+			limits.supported,
+			limits.max_output_vertices,
+			limits.max_output_primitives,
+			limits.max_work_group_invocations,
+		)
+	}
 	ui.init(&game.ui, &game.renderer, game.window)
 
 	game.camera.position = spawn_camera_position(&game.world)
@@ -120,7 +157,7 @@ initialize :: proc(game: ^Game) {
 		fmt.eprintf("Failed to set relative mouse mode: %v\n", sdl.GetError())
 	}
 
-	shader_names := [?]string{"default.slang", "terrain.slang"}
+	shader_names := [?]string{"default.slang", "terrain.slang", "voxel_mesh.slang"}
 	for shader_name in shader_names {
 		shader_path := shader_assets.source_path(shader_name)
 		shader_tools.add_file_watcher(&game.shader_watchers, shader_path, reload_shaders, game)
@@ -137,6 +174,18 @@ reload_shaders :: proc(data: rawptr, filepath: string) {
 	vulkan.reload_presentation_shader(&game.renderer, presentation_shader)
 	terrain_renderer.reload_shader(&game.terrain_render, &game.renderer)
 	ui.reload_shader(&game.ui, &game.renderer)
+}
+
+toggle_terrain_backend :: proc(game: ^Game) {
+	if game.render_config.terrain.backend == .MESH_SHADER {
+		game.render_config.terrain.backend = .RAYMARCH
+		return
+	}
+	if !terrain_renderer.mesh_backend_supported(&game.terrain_render) {
+		fmt.eprintln("VK_EXT_mesh_shader terrain backend is unavailable on this device")
+		return
+	}
+	game.render_config.terrain.backend = .MESH_SHADER
 }
 before_swapchain_destroy :: proc(data: rawptr, r: ^vulkan.Renderer) {
 	game := cast(^Game)data
@@ -176,7 +225,9 @@ run_loop :: proc(game: ^Game) {
 					break main_loop
 				}
 				if !event.key.repeat {
-					if event.key.key == sdl.K_F6 {
+					if event.key.key == sdl.K_F5 {
+						toggle_terrain_backend(game)
+					} else if event.key.key == sdl.K_F6 {
 						reload_shaders(game, "")
 					} else if event.key.key == sdl.K_F1 {
 						game.debug_mode = terrain_renderer.Debug_Mode(
@@ -225,6 +276,34 @@ run_loop :: proc(game: ^Game) {
 				f64(stats.gpu_bytes) / (1024 * 1024),
 				stats.persistent_edits,
 			)
+			fmt.printf(
+				"Terrain benchmark: backend=%v world=%v frame=%.2fms terrain-gpu=%.3fms\n",
+				game.render_config.terrain.backend,
+				game.world.terrain.config.world_type,
+				last_fps > 0 ? 1000 / last_fps : 0,
+				game.terrain_render.gpu_time_ms,
+			)
+			if game.render_config.terrain.backend == .MESH_SHADER {
+				mesh := game.terrain_render.mesh.stats
+				fmt.printf(
+					"Mesh terrain: candidates=%v visible=%v culled=%v workgroups=%v/%v faces=%v primitives=%v\n",
+					mesh.candidate_bricks,
+					mesh.visible_bricks,
+					mesh.culled_bricks,
+					mesh.mesh_workgroups,
+					mesh.culled_workgroups,
+					mesh.generated_faces,
+					mesh.generated_primitives,
+				)
+			} else {
+				traversal := game.terrain_render.stats
+				fmt.printf(
+					"Raymarch voxels: sampled=%v cells=%.1f max=%v\n",
+					traversal.sampled_rays,
+					traversal.average_voxel_cells,
+					traversal.maximum_voxel_cells,
+				)
+			}
 			traversal := game.terrain_render.stats
 			fmt.printf(
 				"Heightfield DDA: sampled=%v cells=%.1f max=%v hit-distance=%.1fm lod-cells=%.1f/%.1f/%.1f lod-hits=%v/%v/%v reps=%v/%v/%v misses=%v\n",
@@ -261,7 +340,7 @@ run_loop :: proc(game: ^Game) {
 			voxels            = &game.world.voxels,
 			materials         = render_materials[:],
 			terrain_materials = terrain_materials[:],
-			config            = game.terrain_config,
+			config            = game.render_config.terrain,
 			visual_seed       = config.seed,
 			world_radius      = config.world_radius,
 			debug_mode        = game.debug_mode,
@@ -292,31 +371,62 @@ build_ui :: proc(game: ^Game, fps: f64) {
 	mu.begin_window(
 		ctx,
 		"Runtime",
-		{h = 220, w = 380, x = 0, y = 0},
+		{h = 300, w = 420, x = 0, y = 0},
 		mu.Options{.NO_SCROLL, .NO_INTERACT, .NO_FRAME, .NO_RESIZE, .NO_TITLE, .NO_CLOSE},
 	)
-	mu.text(ctx, fmt.tprintf("FPS: %.2f", fps))
-	mu.text(ctx, fmt.tprintf("Debug: %v (F1)", game.debug_mode))
-	mu.text(ctx, "LMB mine / RMB place / F2 world plan")
+	mu.layout_row(ctx, {-1}, 0)
+	frame_ms := fps > 0 ? 1000 / fps : 0
+	mu.text(ctx, fmt.tprintf("Terrain Renderer: %v (F5)", game.render_config.terrain.backend))
+	mu.text(ctx, fmt.tprintf("World Type: %v", game.world.terrain.config.world_type))
 	mu.text(
 		ctx,
 		fmt.tprintf(
-			"Virtual voxels: %.0f / %.0f / %.0f m",
-			game.terrain_config.virtual_voxel_size[0],
-			game.terrain_config.virtual_voxel_size[1],
-			game.terrain_config.virtual_voxel_size[2],
+			"Frame: %.2f ms  Terrain GPU: %.3f ms",
+			frame_ms,
+			game.terrain_render.gpu_time_ms,
 		),
 	)
+	mu.text(ctx, fmt.tprintf("Debug: %v (F1)", game.debug_mode))
+	if game.render_config.terrain.backend == .MESH_SHADER {
+		mesh := game.terrain_render.mesh.stats
+		mu.text(
+			ctx,
+			fmt.tprintf(
+				"Visible / candidate bricks: %v / %v",
+				mesh.visible_bricks,
+				mesh.candidate_bricks,
+			),
+		)
+		mu.text(ctx, fmt.tprintf("Generated faces: %v", mesh.generated_faces))
+		mu.text(
+			ctx,
+			fmt.tprintf(
+				"Mesh workgroups: %v (culled %v)",
+				mesh.mesh_workgroups,
+				mesh.culled_workgroups,
+			),
+		)
+	} else {
+		stats := game.terrain_render.stats
+		mu.text(
+			ctx,
+			fmt.tprintf(
+				"Voxel ray cells avg / max: %.1f / %v",
+				stats.average_voxel_cells,
+				stats.maximum_voxel_cells,
+			),
+		)
+	}
 	stats := game.terrain_render.stats
 	mu.text(
 		ctx,
 		fmt.tprintf(
-			"DDA cells avg/max: %.1f / %v",
+			"Heightfield cells avg / max: %.1f / %v",
 			stats.average_heightfield_cells,
 			stats.maximum_heightfield_cells,
 		),
 	)
-	mu.text(ctx, fmt.tprintf("HF hit distance: %.1f m", stats.average_heightfield_hit_distance))
+	mu.text(ctx, "LMB mine / RMB place / F2 world plan / F6 shaders")
 	if game.last_mined_material != .AIR {
 		mu.text(ctx, fmt.tprintf("Last mined: %v", game.last_mined_material))
 	}
@@ -371,7 +481,7 @@ edit_crosshair_voxel :: proc(game: ^Game, place: bool) {
 		&game.world.voxels,
 		game.camera.position,
 		view.forward(game.camera),
-		config.voxel_render_radius,
+		game.render_config.terrain.near_voxel_distance,
 	)
 	if !hit.hit {
 		return

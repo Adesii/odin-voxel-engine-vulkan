@@ -225,7 +225,7 @@ generate_candidate_plan :: proc(config: World_Config, attempt: u32) -> World_Pla
 	return plan
 }
 
-generate_world_plan :: proc(config: World_Config) -> (World_Plan, bool) {
+generate_delta_core_world_plan :: proc(config: World_Config) -> (World_Plan, bool) {
 	if !validate_world_config(config) {
 		return {}, false
 	}
@@ -235,6 +235,16 @@ generate_world_plan :: proc(config: World_Config) -> (World_Plan, bool) {
 			return plan, true
 		}
 		destroy_world_plan(&plan)
+	}
+	return {}, false
+}
+
+generate_world_plan :: proc(config: World_Config) -> (World_Plan, bool) {
+	switch config.world_type {
+	case .DELTA_CORE:
+		return generate_delta_core_world_plan(config)
+	case .FLAT, .NOISE, .STRESS_TEST:
+		return benchmark_world_plan(config)
 	}
 	return {}, false
 }

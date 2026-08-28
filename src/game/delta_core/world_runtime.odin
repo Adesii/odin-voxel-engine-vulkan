@@ -7,7 +7,24 @@ import "core:fmt"
 import "core:math"
 import "core:os"
 
-WORLD_SAVE_PATH :: "saves/delta_core_mvp.world"
+DELTA_CORE_SAVE_PATH :: "saves/delta_core_mvp.world"
+FLAT_SAVE_PATH :: "saves/benchmark_flat.world"
+NOISE_SAVE_PATH :: "saves/benchmark_noise.world"
+STRESS_TEST_SAVE_PATH :: "saves/benchmark_stress.world"
+
+world_save_path :: proc(world_type: World_Type) -> string {
+	switch world_type {
+	case .DELTA_CORE:
+		return DELTA_CORE_SAVE_PATH
+	case .FLAT:
+		return FLAT_SAVE_PATH
+	case .NOISE:
+		return NOISE_SAVE_PATH
+	case .STRESS_TEST:
+		return STRESS_TEST_SAVE_PATH
+	}
+	return DELTA_CORE_SAVE_PATH
+}
 
 World :: struct {
 	terrain:          Natural_Terrain,
@@ -33,9 +50,19 @@ world_fingerprint :: proc(world: ^World) -> u64 {
 	return fingerprint
 }
 
-initialize_world :: proc(world: ^World, config: World_Config) -> bool {
+initialize_world :: proc(
+	world: ^World,
+	config: World_Config,
+	representation: World_Representation_Config,
+) -> bool {
 	world^ = {}
-	terrain, modifications, loaded := load_world_data(WORLD_SAVE_PATH)
+	save_path := world_save_path(config.world_type)
+	terrain, modifications, loaded := load_world_data(save_path)
+	if loaded && terrain.config != config {
+		destroy_world_plan(&terrain.plan)
+		sparse.destroy(&modifications)
+		loaded = false
+	}
 	if loaded {
 		world.terrain = terrain
 		world.modifications = modifications
@@ -58,25 +85,19 @@ initialize_world :: proc(world: ^World, config: World_Config) -> bool {
 			destroy_world_plan(&world.terrain.plan)
 			return false
 		}
-		if !save_world_data(WORLD_SAVE_PATH, &world.terrain, &world.modifications) {
+		if !save_world_data(save_path, &world.terrain, &world.modifications) {
 			sparse.destroy(&world.modifications)
 			destroy_world_plan(&world.terrain.plan)
 			return false
 		}
 	}
 	initialize_voxel_geology(&world.terrain)
-	cache_config := heightfield.Cache_Config {
-		level_count             = 3,
-		sample_count            = world.terrain.config.cache_sample_count,
-		spacing                 = world.terrain.config.cache_lod_spacing,
-		recenter_interval_cells = 16,
-	}
-	if !heightfield.init(&world.cache, cache_config) {
+	if !heightfield.init(&world.cache, representation.heightfield_cache) {
 		sparse.destroy(&world.modifications)
 		destroy_world_plan(&world.terrain.plan)
 		return false
 	}
-	if !voxel_terrain.init(&world.voxels, voxel_config(world.terrain.config)) {
+	if !voxel_terrain.init(&world.voxels, representation.voxels) {
 		heightfield.destroy(&world.cache)
 		sparse.destroy(&world.modifications)
 		destroy_world_plan(&world.terrain.plan)
@@ -113,7 +134,11 @@ stream_world :: proc(world: ^World, camera_position: [3]f32) -> bool {
 }
 
 save_world :: proc(world: ^World) -> bool {
-	return save_world_data(WORLD_SAVE_PATH, &world.terrain, &world.modifications)
+	return save_world_data(
+		world_save_path(world.terrain.config.world_type),
+		&world.terrain,
+		&world.modifications,
+	)
 }
 
 destroy_world :: proc(world: ^World) {

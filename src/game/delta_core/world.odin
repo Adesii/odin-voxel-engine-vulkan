@@ -75,6 +75,9 @@ terrain_biome_color :: proc(biome: Biome) -> u32 {
 
 sample_natural_terrain :: proc(terrain: ^Natural_Terrain, x, z: f32) -> heightfield.Sample {
 	config := terrain.config
+	if config.world_type != .DELTA_CORE {
+		return sample_benchmark_terrain(terrain, x, z)
+	}
 	field := sample_plan_field(&terrain.plan, config, x, z)
 	rolling_noise := (fbm_2d(derive_seed(config.seed, 0x7011), x / 900, z / 900, 4) - 0.5) * 2
 	local_noise := (value_noise_2d(derive_seed(config.seed, 0xDE7A11), x / 110, z / 110) - 0.5) * 2

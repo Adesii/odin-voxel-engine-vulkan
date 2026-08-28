@@ -1,5 +1,7 @@
 package delta_core
 import terrain_renderer "../../engine/render/terrain"
+import heightfield "../../engine/terrain/heightfield"
+import voxel_terrain "../../engine/terrain/voxel"
 
 World_Size :: enum u8 {
 	SMALL,
@@ -7,53 +9,55 @@ World_Size :: enum u8 {
 	LARGE,
 }
 
+World_Type :: enum u8 {
+	DELTA_CORE,
+	FLAT,
+	NOISE,
+	STRESS_TEST,
+}
+
 World_Config :: struct {
-	size_preset:                           World_Size,
-	seed:                                  u64,
-	world_radius:                          f32,
-	crater_radius:                         f32,
-	crater_wall_width:                     f32,
-	crater_wall_height:                    f32,
-	base_elevation:                        f32,
-	mountain_height:                       f32,
-	rolling_terrain_height:                f32,
-	base_voxel_size:                       f32,
-	modification_voxel_size:               f32,
-	voxel_residency_radius:                f32,
-	voxel_render_radius:                   f32,
-	voxel_transition_width:                f32,
-	voxel_generation_depth:                f32,
-	voxel_generation_height_above_surface: f32,
-	voxel_column_sample_stride:            u32,
-	voxel_chunks_per_frame:                u32,
-	plan_resolution:                       i32,
-	max_generation_attempts:               u32,
-	cache_sample_count:                    u32,
-	cache_lod_spacing:                     [3]f32,
-	cache_lod_sizes:                       [3]f32,
-	cache_lod_distances:                   [3]f32,
-	render_distance:                       f32,
+	size_preset:             World_Size,
+	world_type:              World_Type,
+	seed:                    u64,
+	world_radius:            f32,
+	crater_radius:           f32,
+	crater_wall_width:       f32,
+	crater_wall_height:      f32,
+	base_elevation:          f32,
+	mountain_height:         f32,
+	rolling_terrain_height:  f32,
+	base_voxel_size:         f32,
+	modification_voxel_size: f32,
+	ore_generation_depth:    f32,
+	plan_resolution:         i32,
+	max_generation_attempts: u32,
+}
+
+World_Representation_Config :: struct {
+	heightfield_cache: heightfield.Cache_Config,
+	voxels:            voxel_terrain.Config,
+}
+
+Render_Config :: struct {
+	terrain:              terrain_renderer.Config,
+	world_representation: World_Representation_Config,
 }
 
 default_world_config :: proc(
 	size: World_Size = .LARGE,
 	seed: u64 = 0xD317_A_C0DE,
+	world_type: World_Type = .DELTA_CORE,
 ) -> World_Config {
 	config := World_Config {
-		size_preset                           = size,
-		seed                                  = seed,
-		base_elevation                        = 20,
-		base_voxel_size                       = 0.25,
-		modification_voxel_size               = 0.25,
-		voxel_residency_radius                = 24 * 4,
-		voxel_render_radius                   = 18 * 4, //TODO: this shouldn't matter for world generation. these are render settings.
-		voxel_transition_width                = 4 * 4,
-		voxel_generation_depth                = 4,
-		voxel_generation_height_above_surface = 8,
-		voxel_column_sample_stride            = 2 * 16,
-		voxel_chunks_per_frame                = 4,
-		max_generation_attempts               = 8,
-		cache_sample_count                    = 256, //TODO: this shouldn't matter for world generation. these are render settings.
+		size_preset             = size,
+		world_type              = world_type,
+		seed                    = seed,
+		base_elevation          = 20,
+		base_voxel_size         = 0.25,
+		modification_voxel_size = 0.25,
+		ore_generation_depth    = 4,
+		max_generation_attempts = 8,
 	}
 	switch size {
 	case .SMALL:
@@ -64,7 +68,6 @@ default_world_config :: proc(
 		config.mountain_height = 1_200
 		config.rolling_terrain_height = 90
 		config.plan_resolution = 64
-	// config.cache_lod_spacing = {4, 16, 128}//TODO: this shouldn't matter for world generation. these are render settings.
 	case .MEDIUM:
 		config.world_radius = 16_384
 		config.crater_radius = 14_000
@@ -73,8 +76,6 @@ default_world_config :: proc(
 		config.mountain_height = 1_900
 		config.rolling_terrain_height = 120
 		config.plan_resolution = 96
-	// config.cache_lod_spacing = {4, 32, 256}//TODO: this shouldn't matter for world generation. these are render settings.
-	// config.render_distance = 46_000 //TODO: this shouldn't matter for world generation. these are render settings.
 	case .LARGE:
 		config.world_radius = 32_768
 		config.crater_radius = 28_000
@@ -83,30 +84,48 @@ default_world_config :: proc(
 		config.mountain_height = 3_000
 		config.rolling_terrain_height = 170
 		config.plan_resolution = 128
-	// config.render_distance = 90_000 //TODO: this shouldn't matter for world generation. these are render settings.
 	}
-	config.render_distance = 5_000_000 //TODO: this shouldn't matter for world generation. these are render settings.
-	config.cache_lod_spacing = {1, 16, 512} //TODO: this shouldn't matter for world generation. these are render settings.
-	config.cache_lod_distances = {1, 16, 512}
-	config.cache_lod_sizes = {1, 16, 512}
 	return config
 }
 
-default_terrain_render_config :: proc(config: World_Config) -> terrain_renderer.Config {
-	sample_cells := f32(config.cache_sample_count - 1)
+default_render_config :: proc(
+	world: World_Config,
+	backend: terrain_renderer.Backend = .RAYMARCH,
+) -> Render_Config {
+	cache := heightfield.Cache_Config {
+		level_count             = 3,
+		sample_count            = 256,
+		spacing                 = {1, 16, 512},
+		recenter_interval_cells = 16,
+	}
+	sample_cells := f32(cache.sample_count - 1)
 	return {
-		near_voxel_distance = config.voxel_render_radius,
-		voxel_transition_width = config.voxel_transition_width,
-		heightfield_lod_end_distances = {
-			sample_cells * config.cache_lod_distances[0] * 0.4,
-			sample_cells * config.cache_lod_distances[1] * 0.4,
-			config.render_distance,
+		terrain = {
+			backend = backend,
+			near_voxel_distance = 18 * 4,
+			voxel_transition_width = 4 * 4,
+			heightfield_lod_end_distances = {
+				sample_cells * cache.spacing[0] * 0.4,
+				sample_cells * cache.spacing[1] * 0.4,
+				5_000_000,
+			},
+			far_distance = 5_000_000,
+			virtual_voxel_size = {1, 16, 512},
+			vertical_quantization = {1, 16, 512},
+			heightfield_lod_transition_width = cache.spacing[1],
+			stats_sample_stride = 16,
 		},
-		far_distance = config.render_distance,
-		virtual_voxel_size = config.cache_lod_sizes,
-		vertical_quantization = config.cache_lod_sizes,
-		heightfield_lod_transition_width = config.cache_lod_spacing[1],
-		stats_sample_stride = 16,
+		world_representation = {
+			heightfield_cache = cache,
+			voxels = {
+				voxel_size = world.base_voxel_size,
+				residency_radius = 24 * 4,
+				generation_depth = 4,
+				generation_height_above_surface = 8,
+				column_sample_stride = 2 * 16,
+				max_chunks_per_update = 4,
+			},
+		},
 	}
 }
 
@@ -124,21 +143,19 @@ validate_world_config :: proc(config: World_Config) -> bool {
 		config.crater_wall_height > 0 &&
 		config.base_voxel_size > 0 &&
 		config.modification_voxel_size == config.base_voxel_size &&
-		config.voxel_residency_radius > config.voxel_render_radius &&
-		config.voxel_render_radius > config.voxel_transition_width &&
-		config.voxel_transition_width >= 0 &&
-		config.voxel_generation_depth > 0 &&
-		config.voxel_generation_height_above_surface >= 0 &&
-		config.voxel_column_sample_stride > 0 &&
-		32 % int(config.voxel_column_sample_stride) == 0 &&
-		config.voxel_chunks_per_frame > 0 &&
+		config.ore_generation_depth > 0 &&
 		config.plan_resolution >= 16 &&
-		config.max_generation_attempts > 0 &&
-		config.cache_sample_count >= 17 &&
-		config.cache_lod_spacing[0] > 0 &&
-		config.cache_lod_spacing[0] < config.cache_lod_spacing[1] &&
-		config.cache_lod_spacing[1] < config.cache_lod_spacing[2] &&
-		config.render_distance > config.crater_radius \
-	) // config.cache_sample_count <= 257 &&
+		config.max_generation_attempts > 0 \
+	)
+}
 
+validate_render_config :: proc(world: World_Config, config: Render_Config) -> bool {
+	representation := config.world_representation
+	return(
+		terrain_renderer.valid_config(config.terrain) &&
+		heightfield.valid_config(representation.heightfield_cache) &&
+		voxel_terrain.valid_config(representation.voxels) &&
+		representation.voxels.voxel_size == world.base_voxel_size &&
+		representation.voxels.residency_radius > config.terrain.near_voxel_distance \
+	)
 }

@@ -37,8 +37,6 @@ resident_generation_edit_and_streaming :: proc(t: ^testing.T) {
 	config := Config {
 		voxel_size                      = 1,
 		residency_radius                = 17,
-		render_radius                   = 12,
-		transition_width                = 2,
 		generation_depth                = 8,
 		generation_height_above_surface = 4,
 		column_sample_stride            = 1,

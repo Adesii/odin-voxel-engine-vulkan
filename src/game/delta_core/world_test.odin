@@ -199,10 +199,9 @@ mined_ore_depletion_survives_save_and_regeneration :: proc(t: ^testing.T) {
 	defer sparse.destroy(&loaded_modifications)
 	initialize_voxel_geology(&loaded_terrain)
 	resident: voxel_terrain.World
-	resident_config := voxel_config(loaded_terrain.config)
+	render_config := default_render_config(loaded_terrain.config)
+	resident_config := render_config.world_representation.voxels
 	resident_config.residency_radius = 12
-	resident_config.render_radius = 8
-	resident_config.transition_width = 2
 	resident_config.generation_depth = 8
 	resident_config.generation_height_above_surface = 4
 	resident_config.max_chunks_per_update = 1_000
@@ -214,18 +213,80 @@ mined_ore_depletion_survives_save_and_regeneration :: proc(t: ^testing.T) {
 }
 
 @(test)
-terrain_render_presets_are_world_aligned :: proc(t: ^testing.T) {
+render_configuration_is_independent_and_world_aligned :: proc(t: ^testing.T) {
 	sizes := [?]World_Size{World_Size.SMALL, World_Size.MEDIUM, World_Size.LARGE}
 	for size in sizes {
 		world := default_world_config(size)
-		render := default_terrain_render_config(world)
-		testing.expect(t, terrain_renderer.valid_config(render))
-		testing.expect_value(t, render.near_voxel_distance, world.voxel_render_radius)
-		testing.expect_value(t, render.virtual_voxel_size, world.cache_lod_spacing)
-		testing.expect_value(t, render.vertical_quantization, world.cache_lod_spacing)
-		for index in 0 ..< len(render.virtual_voxel_size) {
-			ratio := render.virtual_voxel_size[index] / world.cache_lod_spacing[index]
+		render := default_render_config(world)
+		testing.expect(t, validate_render_config(world, render))
+		testing.expect_value(t, render.terrain.backend, terrain_renderer.Backend.RAYMARCH)
+		testing.expect_value(
+			t,
+			render.world_representation.voxels.voxel_size,
+			world.base_voxel_size,
+		)
+		for index in 0 ..< len(render.terrain.virtual_voxel_size) {
+			ratio :=
+				render.terrain.virtual_voxel_size[index] /
+				render.world_representation.heightfield_cache.spacing[index]
 			testing.expect(t, math.abs(ratio - math.round(ratio)) < 0.0001)
 		}
 	}
+}
+
+@(test)
+world_types_generate_independently_from_renderer_backend :: proc(t: ^testing.T) {
+	types := [?]World_Type{.DELTA_CORE, .FLAT, .NOISE, .STRESS_TEST}
+	for world_type in types {
+		config := default_world_config(.SMALL, 0x51A7_2026, world_type)
+		raymarch := default_render_config(config, .RAYMARCH)
+		mesh := default_render_config(config, .MESH_SHADER)
+		testing.expect_value(t, raymarch.world_representation, mesh.world_representation)
+		testing.expect_value(t, raymarch.terrain.backend, terrain_renderer.Backend.RAYMARCH)
+		testing.expect_value(t, mesh.terrain.backend, terrain_renderer.Backend.MESH_SHADER)
+
+		first, first_ok := generate_world_plan(config)
+		second, second_ok := generate_world_plan(config)
+		if !testing.expect(t, first_ok && second_ok) {
+			continue
+		}
+		defer destroy_world_plan(&first)
+		defer destroy_world_plan(&second)
+		testing.expect_value(t, first.generation_seed, second.generation_seed)
+		testing.expect_value(t, len(first.cells), len(second.cells))
+		for index in 0 ..< len(first.cells) {
+			testing.expect_value(t, first.cells[index], second.cells[index])
+		}
+		first_terrain := Natural_Terrain{config = config, plan = first}
+		second_terrain := Natural_Terrain{config = config, plan = second}
+		testing.expect_value(
+			t,
+			sample_natural_terrain(&first_terrain, 13.25, -7.5),
+			sample_natural_terrain(&second_terrain, 13.25, -7.5),
+		)
+	}
+}
+
+@(test)
+runtime_renderer_switch_preserves_live_world :: proc(t: ^testing.T) {
+	game := new(Game)
+	defer free(game)
+	game.world.terrain.config = default_world_config(.SMALL, 0xA_B_C_D, .FLAT)
+	game.world.terrain.plan = {
+		world_seed      = game.world.terrain.config.seed,
+		generation_seed = derive_seed(game.world.terrain.config.seed, 1),
+	}
+	game.render_config = default_render_config(game.world.terrain.config, .RAYMARCH)
+	game.terrain_render.mesh.available = true
+	before_config := game.world.terrain.config
+	before_fingerprint := world_fingerprint(&game.world)
+
+	toggle_terrain_backend(game)
+	testing.expect_value(t, game.render_config.terrain.backend, terrain_renderer.Backend.MESH_SHADER)
+	testing.expect_value(t, game.world.terrain.config, before_config)
+	testing.expect_value(t, world_fingerprint(&game.world), before_fingerprint)
+
+	toggle_terrain_backend(game)
+	testing.expect_value(t, game.render_config.terrain.backend, terrain_renderer.Backend.RAYMARCH)
+	testing.expect_value(t, world_fingerprint(&game.world), before_fingerprint)
 }
