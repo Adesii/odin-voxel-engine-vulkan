@@ -1,5 +1,6 @@
 import utils.camera;
 import utils.ray;
+import utils.voxel_math;
 
 struct TerrainSettings {
   float worldRadius;
@@ -185,31 +186,6 @@ Ray generateCameraRay(uint2 pixelCoord, float2 screenSize) {
   return ray;
 }
 
-uint hashUint(uint value) {
-  value ^= value >> 16;
-  value *= 0x7FEB352Du;
-  value ^= value >> 15;
-  value *= 0x846CA68Bu;
-  value ^= value >> 16;
-  return value;
-}
-
-uint hashVoxel(int3 voxel) {
-  return hashUint(uint(voxel.x) * 73856093u ^ uint(voxel.y) * 19349663u ^
-                  uint(voxel.z) * 83492791u);
-}
-
-// Explicit floor is required here: signed integer division truncated negative
-// world coordinates on the GPU.
-int floorDiv(int value, int divisor) {
-  return int(floor(float(value) / float(divisor)));
-}
-
-int3 floorDiv3(int3 value, int divisor) {
-  return int3(floorDiv(value.x, divisor), floorDiv(value.y, divisor),
-              floorDiv(value.z, divisor));
-}
-
 bool lookupChunk(int3 coord, out VoxelChunk chunk) {
   chunk = (VoxelChunk)0;
   if (g_settings.chunkCount == 0 || g_settings.chunkTableMask == 0)
@@ -252,8 +228,8 @@ bool sampleVoxel(int3 voxel, out uint material, out uint brickKind,
   int3 cell = local % BRICK_SIZE;
   uint cellIndex =
       uint(cell.z * BRICK_SIZE * BRICK_SIZE + cell.y * BRICK_SIZE + cell.x);
-  uint packedMaterial =
-      g_voxelMaterials[brick.voxelOffset + cellIndex / VOXEL_MATERIALS_PER_WORD];
+  uint packedMaterial = g_voxelMaterials[brick.voxelOffset +
+                                         cellIndex / VOXEL_MATERIALS_PER_WORD];
   material =
       (packedMaterial >> ((cellIndex % VOXEL_MATERIALS_PER_WORD) * 8u)) & 0xFFu;
   return material != 0;

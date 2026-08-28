@@ -1,3 +1,5 @@
+import utils.voxel_math;
+
 struct MeshSettings {
   float4x4 viewProj;
   float3 cameraPosition;
@@ -85,39 +87,14 @@ static const uint DEBUG_MATERIAL = 2u;
 static const uint DEBUG_HEIGHTFIELD_ONLY = 45u;
 
 static const int3 NEIGHBOR_OFFSETS[6] = {
-    int3(-1, 0, 0), int3(1, 0, 0),  int3(0, -1, 0),
-    int3(0, 1, 0),  int3(0, 0, -1), int3(0, 0, 1),
+  int3(-1, 0, 0), int3(1, 0, 0),  int3(0, -1, 0),
+  int3(0, 1, 0),  int3(0, 0, -1), int3(0, 0, 1),
 };
 
 static const uint4 FACE_CORNERS[6] = {
-    uint4(0, 4, 6, 2), uint4(1, 3, 7, 5), uint4(0, 1, 5, 4),
-    uint4(2, 6, 7, 3), uint4(0, 2, 3, 1), uint4(4, 5, 7, 6),
+  uint4(0, 4, 6, 2), uint4(1, 3, 7, 5), uint4(0, 1, 5, 4),
+  uint4(2, 6, 7, 3), uint4(0, 2, 3, 1), uint4(4, 5, 7, 6),
 };
-
-uint hashUint(uint value) {
-  value ^= value >> 16;
-  value *= 0x7FEB352Du;
-  value ^= value >> 15;
-  value *= 0x846CA68Bu;
-  value ^= value >> 16;
-  return value;
-}
-
-uint hashVoxel(int3 voxel) {
-  return hashUint(uint(voxel.x) * 73856093u ^ uint(voxel.y) * 19349663u ^
-                  uint(voxel.z) * 83492791u);
-}
-
-int floorDiv(int value, int divisor) {
-  int quotient = value / divisor;
-  int remainder = value % divisor;
-  return remainder < 0 ? quotient - 1 : quotient;
-}
-
-int3 floorDiv3(int3 value, int divisor) {
-  return int3(floorDiv(value.x, divisor), floorDiv(value.y, divisor),
-              floorDiv(value.z, divisor));
-}
 
 bool lookupChunk(int3 coord, out VoxelChunk chunk) {
   chunk = (VoxelChunk)0;
@@ -155,8 +132,8 @@ bool sampleVoxel(int3 voxel, out uint material) {
   }
   int3 cell = local - brickCoord * BRICK_SIZE;
   uint cellIndex = uint(cell.z * 64 + cell.y * 8 + cell.x);
-  uint packedMaterial =
-      g_voxelMaterials[brick.voxelOffset + cellIndex / VOXEL_MATERIALS_PER_WORD];
+  uint packedMaterial = g_voxelMaterials[brick.voxelOffset +
+                                         cellIndex / VOXEL_MATERIALS_PER_WORD];
   material =
       (packedMaterial >> ((cellIndex % VOXEL_MATERIALS_PER_WORD) * 8u)) & 0xFFu;
   return material != 0;
@@ -167,7 +144,7 @@ groupshared uint g_faceCount;
 [shader("mesh")]
 [numthreads(32, 1, 1)]
 [outputtopology("triangle")]
-void mesh_main(uint3 groupID : SV_GroupID, uint threadID : SV_GroupThreadID,
+void mesh_main(uint3 groupID: SV_GroupID, uint threadID: SV_GroupThreadID,
                out vertices MeshVertex vertices[MAX_OUTPUT_VERTICES],
                out indices uint3 triangles[MAX_OUTPUT_PRIMITIVES]) {
   if (threadID == 0)
@@ -186,8 +163,8 @@ void mesh_main(uint3 groupID : SV_GroupID, uint threadID : SV_GroupThreadID,
   MeshBrick meshBrick = g_meshBricks[meshBrickIndex];
   float3 brickMinimum = float3(meshBrick.voxelMin) * g_meshSettings.voxelSize;
   float3 brickMaximum = brickMinimum + BRICK_SIZE * g_meshSettings.voxelSize;
-  float2 closest = clamp(g_meshSettings.cameraPosition.xz, brickMinimum.xz,
-                         brickMaximum.xz);
+  float2 closest =
+      clamp(g_meshSettings.cameraPosition.xz, brickMinimum.xz, brickMaximum.xz);
   bool brickCulled = distance(closest, g_meshSettings.cameraPosition.xz) >
                          g_meshSettings.nearVoxelDistance ||
                      g_meshSettings.debugMode == DEBUG_HEIGHTFIELD_ONLY;
@@ -223,7 +200,8 @@ void mesh_main(uint3 groupID : SV_GroupID, uint threadID : SV_GroupThreadID,
     if (sampleVoxel(voxel, material)) {
       for (uint direction = 0; direction < 6; direction++) {
         uint neighborMaterial;
-        if (!sampleVoxel(voxel + NEIGHBOR_OFFSETS[direction], neighborMaterial)) {
+        if (!sampleVoxel(voxel + NEIGHBOR_OFFSETS[direction],
+                         neighborMaterial)) {
           exposed[direction] = true;
           InterlockedAdd(g_faceCount, 1u, faceSlot[direction]);
         }
@@ -278,26 +256,26 @@ float stableVariation(int3 voxel, uint material, float strength) {
               material * 0x85EBCA6Bu;
   float coarse = float(hashVoxel(floorDiv3(voxel, 8)) ^ seed) / 4294967295.0;
   float fine = float(hashVoxel(voxel) ^ hashUint(seed)) / 4294967295.0;
-  return 1.0 + (coarse - 0.5) * strength * 0.9 +
-         (fine - 0.5) * strength * 0.45;
+  return 1.0 + (coarse - 0.5) * strength * 0.9 + (fine - 0.5) * strength * 0.45;
 }
-
 
 [shader("fragment")]
 float4 fragment_main(MeshVertex input) : SV_Target {
   uint width, height;
   g_heightfieldDepth.GetDimensions(width, height);
   uint2 pixel = min(uint2(input.position.xy), uint2(width - 1, height - 1));
-  float voxelDistance = distance(input.worldPosition, g_meshSettings.cameraPosition);
+  float voxelDistance =
+      distance(input.worldPosition, g_meshSettings.cameraPosition);
   float heightfieldDistance = g_heightfieldDepth[pixel];
   if (heightfieldDistance + g_meshSettings.voxelSize * 2.0 < voxelDistance)
     discard;
 
-  uint materialIndex = min(input.material, max(g_meshSettings.materialCount, 1u) - 1u);
+  uint materialIndex =
+      min(input.material, max(g_meshSettings.materialCount, 1u) - 1u);
   MaterialRenderInfo info = g_materials[materialIndex];
-  float3 color = unpackColor(info.baseColor) *
-                 stableVariation(input.voxel, input.material,
-                                 info.variationStrength);
+  float3 color =
+      unpackColor(info.baseColor) *
+      stableVariation(input.voxel, input.material, info.variationStrength);
   if (g_meshSettings.debugMode == DEBUG_MATERIAL)
     color = unpackColor(info.baseColor);
   float3 normal = input.normal;
