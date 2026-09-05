@@ -1,5 +1,6 @@
 package delta_core
 import terrain_renderer "../../engine/render/terrain"
+import heightfield "../../engine/terrain/heightfield"
 
 import sparse "../../engine/terrain/sparse"
 import voxel_terrain "../../engine/terrain/voxel"
@@ -225,12 +226,14 @@ render_configuration_is_independent_and_world_aligned :: proc(t: ^testing.T) {
 			render.world_representation.voxels.voxel_size,
 			world.base_voxel_size,
 		)
-		for index in 0 ..< len(render.terrain.virtual_voxel_size) {
-			ratio :=
-				render.terrain.virtual_voxel_size[index] /
-				render.world_representation.heightfield_cache.spacing[index]
-			testing.expect(t, math.abs(ratio - math.round(ratio)) < 0.0001)
+		cache := render.world_representation.heightfield_cache
+		testing.expect_value(t, render.terrain.heightfield_lod_count, cache.level_count)
+		testing.expect_value(t, cache.level_count, u32(heightfield.MAX_LOD_LEVELS))
+		testing.expect_value(t, render.terrain.virtual_voxel_size, cache.spacing)
+		for index in 1 ..< int(cache.level_count) {
+			testing.expect_value(t, cache.spacing[index], cache.spacing[index - 1] * 2)
 		}
+		testing.expect(t, render.terrain.virtual_voxel_size[heightfield.MAX_LOD_LEVELS - 1] <= 256)
 	}
 }
 

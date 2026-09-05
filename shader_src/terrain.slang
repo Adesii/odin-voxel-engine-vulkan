@@ -2,6 +2,8 @@ import utils.camera;
 import utils.ray;
 import utils.voxel_math;
 
+static const uint MAX_LOD_LEVELS = 9u;
+
 struct TerrainSettings {
   float worldRadius;
   float maxDistance;
@@ -21,9 +23,15 @@ struct TerrainSettings {
   uint terrainMaterialCount;
   uint visualSeedLo;
   uint visualSeedHi;
-  float4 lodDistances;
-  float4 virtualVoxelSizes;
-  float4 verticalSteps;
+  float4 lodDistances0;
+  float4 lodDistances1;
+  float4 lodDistances2;
+  float4 virtualVoxelSizes0;
+  float4 virtualVoxelSizes1;
+  float4 virtualVoxelSizes2;
+  float4 verticalSteps0;
+  float4 verticalSteps1;
+  float4 verticalSteps2;
   float3 overrideBoundsMin;
   uint statsSampleStride;
   float3 overrideBoundsMax;
@@ -102,7 +110,7 @@ struct HeightfieldHit {
   float cellSize;
   float quantizedHeight;
   uint traversedCells;
-  uint4 lodCellVisits;
+  uint lodCellVisits[MAX_LOD_LEVELS];
 };
 
 struct TerrainTraversalStats {
@@ -114,12 +122,30 @@ struct TerrainTraversalStats {
   uint lod0Hits;
   uint lod1Hits;
   uint lod2Hits;
+  uint lod3Hits;
+  uint lod4Hits;
+  uint lod5Hits;
+  uint lod6Hits;
+  uint lod7Hits;
+  uint lod8Hits;
   uint lod0CellVisits;
   uint lod1CellVisits;
   uint lod2CellVisits;
+  uint lod3CellVisits;
+  uint lod4CellVisits;
+  uint lod5CellVisits;
+  uint lod6CellVisits;
+  uint lod7CellVisits;
+  uint lod8CellVisits;
   uint lod0TraversedRays;
   uint lod1TraversedRays;
   uint lod2TraversedRays;
+  uint lod3TraversedRays;
+  uint lod4TraversedRays;
+  uint lod5TraversedRays;
+  uint lod6TraversedRays;
+  uint lod7TraversedRays;
+  uint lod8TraversedRays;
   uint voxelOnlyHits;
   uint heightfieldOnlyHits;
   uint blendedHits;
@@ -262,10 +288,13 @@ VoxelHit traceVoxels(Ray ray) {
                  : max((nextBoundary.z - ray.origin.z) / ray.direction.z, 0.0));
   float distanceAlongRay = 0.0;
   float3 enteredNormal = 0;
+  float horizontalSpeed = max(length(ray.direction.xz), 1e-4);
+  float voxelEndDistance =
+      min(g_settings.voxelRenderRadius / horizontalSpeed,
+          g_settings.maxDistance);
 
   for (uint stepIndex = 0;
-       stepIndex < 512 && distanceAlongRay <= g_settings.voxelRenderRadius;
-       stepIndex++) {
+       stepIndex < 512 && distanceAlongRay <= voxelEndDistance; stepIndex++) {
     result.cellVisits++;
     uint material;
     uint brickKind;
@@ -300,14 +329,17 @@ VoxelHit traceVoxels(Ray ray) {
   return result;
 }
 
-float lodValue(float4 values, uint lod) {
-  if (lod == 0)
-    return values.x;
-  if (lod == 1)
-    return values.y;
-  if (lod == 2)
-    return values.z;
-  return values.w;
+float lodValue(float4 values0, float4 values1, float4 values2, uint lod) {
+  if (lod < 4u)
+    return values0[lod];
+  if (lod < 8u)
+    return values1[lod - 4u];
+  return values2[lod - 8u];
+}
+
+TerrainSample loadTerrainSample(TerrainLevel level, int2 sampleCoord) {
+  return g_samples[level.sampleOffset + uint(sampleCoord.y) * level.sampleCount +
+                   uint(sampleCoord.x)];
 }
 
 bool sampleTerrainColumn(int2 cell, uint lod, out TerrainSample terrain,
@@ -315,16 +347,39 @@ bool sampleTerrainColumn(int2 cell, uint lod, out TerrainSample terrain,
   terrain = (TerrainSample)0;
   quantizedHeight = 0.0;
   TerrainLevel level = g_levels[lod];
-  float cellSize = lodValue(g_settings.virtualVoxelSizes, lod);
+  float cellSize =
+      lodValue(g_settings.virtualVoxelSizes0, g_settings.virtualVoxelSizes1,
+               g_settings.virtualVoxelSizes2, lod);
   float2 cellCenter = float2(cell) * cellSize;
-  int2 sampleCoord =
-      int2(floor((cellCenter - level.origin) / level.spacing + 0.5));
-  if (any(sampleCoord < 0) || any(sampleCoord >= int(level.sampleCount)))
+  float2 samplePosition = (cellCenter - level.origin) / level.spacing;
+  float maximumSample = float(level.sampleCount - 1u);
+  if (any(samplePosition < 0.0) || any(samplePosition > maximumSample))
     return false;
-  terrain =
-      g_samples[level.sampleOffset + uint(sampleCoord.y) * level.sampleCount +
-                uint(sampleCoord.x)];
-  float verticalStep = max(lodValue(g_settings.verticalSteps, lod), 0.001);
+
+  int2 sample0 = int2(floor(samplePosition));
+  int2 maximumCoord = int2(int(level.sampleCount) - 1);
+  int2 sample1 = min(sample0 + int2(1), maximumCoord);
+  float2 blend = frac(samplePosition);
+  TerrainSample sample00 = loadTerrainSample(level, sample0);
+  TerrainSample sample10 =
+      loadTerrainSample(level, int2(sample1.x, sample0.y));
+  TerrainSample sample01 =
+      loadTerrainSample(level, int2(sample0.x, sample1.y));
+  TerrainSample sample11 = loadTerrainSample(level, sample1);
+  terrain.height =
+      lerp(lerp(sample00.height, sample10.height, blend.x),
+           lerp(sample01.height, sample11.height, blend.x), blend.y);
+  terrain.mountainInfluence =
+      lerp(lerp(sample00.mountainInfluence, sample10.mountainInfluence, blend.x),
+           lerp(sample01.mountainInfluence, sample11.mountainInfluence, blend.x),
+           blend.y);
+  int2 nearestSample =
+      min(int2(floor(samplePosition + 0.5)), maximumCoord);
+  terrain.material = loadTerrainSample(level, nearestSample).material;
+  float verticalStep =
+      max(lodValue(g_settings.verticalSteps0, g_settings.verticalSteps1,
+                   g_settings.verticalSteps2, lod),
+          0.001);
   quantizedHeight = floor(terrain.height / verticalStep) * verticalStep;
   return true;
 }
@@ -369,7 +424,9 @@ bool traceHeightfieldLod(Ray ray, uint lod, float segmentStart,
   if (segmentEnd <= segmentStart)
     return false;
 
-  float cellSize = lodValue(g_settings.virtualVoxelSizes, lod);
+  float cellSize =
+      lodValue(g_settings.virtualVoxelSizes0, g_settings.virtualVoxelSizes1,
+               g_settings.virtualVoxelSizes2, lod);
   float2 horizontalDirection = ray.direction.xz;
   float2 startPosition =
       ray.origin.xz + horizontalDirection * (segmentStart + 1e-4);
@@ -448,23 +505,24 @@ HeightfieldHit traceHeightfield(Ray ray, float startDistance) {
   HeightfieldHit result = (HeightfieldHit)0;
   float segmentStart =
       max(startDistance, g_settings.modificationVoxelSize * 0.5);
-  for (uint lod = 0; lod < 3 && lod < g_settings.levelCount; lod++) {
+  for (uint lod = 0; lod < MAX_LOD_LEVELS && lod < g_settings.levelCount;
+       lod++) {
+    float horizontalSpeed = max(length(ray.direction.xz), 1e-4);
     float segmentEnd =
-        min(lodValue(g_settings.lodDistances, lod), g_settings.maxDistance);
+        min(lodValue(g_settings.lodDistances0, g_settings.lodDistances1,
+                     g_settings.lodDistances2, lod) /
+                horizontalSpeed,
+            g_settings.maxDistance);
     uint visits;
     HeightfieldHit lodHit;
     bool hit =
         traceHeightfieldLod(ray, lod, segmentStart, segmentEnd, lodHit, visits);
     result.traversedCells += visits;
-    if (lod == 0)
-      result.lodCellVisits.x += visits;
-    else if (lod == 1)
-      result.lodCellVisits.y += visits;
-    else
-      result.lodCellVisits.z += visits;
+    result.lodCellVisits[lod] += visits;
     if (hit) {
       lodHit.traversedCells = result.traversedCells;
-      lodHit.lodCellVisits = result.lodCellVisits;
+      for (uint index = 0; index < MAX_LOD_LEVELS; index++)
+        lodHit.lodCellVisits[index] = result.lodCellVisits[index];
       return lodHit;
     }
     segmentStart = segmentEnd;
@@ -517,19 +575,6 @@ float virtualCellVariation(HeightfieldHit hit, float strength) {
 
 float virtualColumnEdge(HeightfieldHit hit, float width) {
   return 0.0f;
-  float halfSize = hit.cellSize * 0.5;
-  float verticalStep = max(lodValue(g_settings.verticalSteps, hit.lod), 0.001);
-  float xEdge = min(frac((hit.position.x + halfSize) / hit.cellSize),
-                    1.0 - frac((hit.position.x + halfSize) / hit.cellSize));
-  float zEdge = min(frac((hit.position.z + halfSize) / hit.cellSize),
-                    1.0 - frac((hit.position.z + halfSize) / hit.cellSize));
-  float yEdge = min(frac(hit.position.y / verticalStep),
-                    1.0 - frac(hit.position.y / verticalStep));
-  float tangentEdge =
-      abs(hit.normal.x) > 0.5
-          ? min(yEdge, zEdge)
-          : (abs(hit.normal.y) > 0.5 ? min(xEdge, zEdge) : min(xEdge, yEdge));
-  return 1.0 - smoothstep(width, width * 1.8, tangentEdge);
 }
 
 float stableVariation(int3 voxel, uint material, float strength) {
@@ -605,6 +650,26 @@ float3 voxelColor(VoxelHit hit) {
   return color;
 }
 
+float3 lodDebugColor(uint lod) {
+  if (lod == 0u)
+    return float3(0.12, 0.9, 0.25);
+  if (lod == 1u)
+    return float3(0.95, 0.75, 0.08);
+  if (lod == 2u)
+    return float3(0.18, 0.45, 1.0);
+  if (lod == 3u)
+    return float3(0.92, 0.18, 0.72);
+  if (lod == 4u)
+    return float3(0.05, 0.88, 0.82);
+  if (lod == 5u)
+    return float3(1.0, 0.38, 0.08);
+  if (lod == 6u)
+    return float3(0.52, 0.24, 0.94);
+  if (lod == 7u)
+    return float3(0.72, 0.92, 0.12);
+  return float3(0.08, 0.58, 0.95);
+}
+
 float3 heightfieldColor(HeightfieldHit hit) {
   uint terrainIndex =
       g_settings.terrainMaterialOffset +
@@ -615,13 +680,8 @@ float3 heightfieldColor(HeightfieldHit hit) {
   float cellEdge = virtualColumnEdge(hit, 0.035);
   surface *= lerp(1.0, 0.62, cellEdge);
 
-  if (g_settings.debugMode == DEBUG_LOD) {
-    if (hit.lod == 0)
-      return float3(0.12, 0.9, 0.25);
-    if (hit.lod == 1)
-      return float3(0.95, 0.75, 0.08);
-    return float3(0.18, 0.45, 1.0);
-  }
+  if (g_settings.debugMode == DEBUG_LOD)
+    return lodDebugColor(hit.lod);
   if (g_settings.debugMode == DEBUG_MATERIAL)
     return base;
   if (g_settings.debugMode == DEBUG_MOUNTAIN_INFLUENCE)
@@ -634,9 +694,7 @@ float3 heightfieldColor(HeightfieldHit hit) {
                                                : surface * 0.35;
   }
   if (g_settings.debugMode == DEBUG_VIRTUAL_VOXEL_CELLS) {
-    float3 lodTint = hit.lod == 0 ? float3(0.12, 0.9, 0.25)
-                                  : (hit.lod == 1 ? float3(0.95, 0.75, 0.08)
-                                                  : float3(0.18, 0.45, 1.0));
+    float3 lodTint = lodDebugColor(hit.lod);
     return lerp(surface * 0.28 + lodTint * 0.18, float3(0.02, 1.0, 0.95),
                 cellEdge);
   }
@@ -651,17 +709,25 @@ float3 heightfieldColor(HeightfieldHit hit) {
   }
   if (g_settings.debugMode == DEBUG_LOD_TRANSITIONS) {
     float horizontalDistance = length(hit.position.xz - g_camera.position.xz);
-    float transitionDistance =
-        min(abs(horizontalDistance - g_settings.voxelRenderRadius),
-            min(abs(hit.distance - g_settings.lodDistances.x),
-                abs(hit.distance - g_settings.lodDistances.y)));
-    return transitionDistance < g_settings.heightfieldTransitionWidth
-               ? float3(1.0, 0.04, 0.75)
-               : surface * 0.25;
+    bool inTransition =
+        abs(horizontalDistance - g_settings.voxelRenderRadius) <
+        g_settings.voxelTransitionWidth;
+    for (uint lod = 0u; lod < g_settings.levelCount; lod++) {
+      float boundary =
+          lodValue(g_settings.lodDistances0, g_settings.lodDistances1,
+                   g_settings.lodDistances2, lod);
+      inTransition =
+          inTransition ||
+          abs(horizontalDistance - boundary) <
+              g_settings.heightfieldTransitionWidth;
+    }
+    return inTransition ? float3(1.0, 0.04, 0.75) : surface * 0.25;
   }
   if (g_settings.debugMode == DEBUG_HEIGHT_QUANTIZATION) {
     float verticalStep =
-        max(lodValue(g_settings.verticalSteps, hit.lod), 0.001);
+        max(lodValue(g_settings.verticalSteps0, g_settings.verticalSteps1,
+                     g_settings.verticalSteps2, hit.lod),
+            0.001);
     float loss =
         saturate((hit.terrain.height - hit.quantizedHeight) / verticalStep);
     return lerp(float3(0.08, 0.18, 0.95), float3(1.0, 0.12, 0.02), loss);
@@ -699,27 +765,63 @@ void recordTraversalStats(uint2 pixelCoord, VoxelHit voxelHit,
   InterlockedMax(g_traversalStats[0].maxHeightfieldCellVisits,
                  terrainHit.traversedCells);
   InterlockedAdd(g_traversalStats[0].lod0CellVisits,
-                 terrainHit.lodCellVisits.x);
+                 terrainHit.lodCellVisits[0]);
   InterlockedAdd(g_traversalStats[0].lod1CellVisits,
-                 terrainHit.lodCellVisits.y);
+                 terrainHit.lodCellVisits[1]);
   InterlockedAdd(g_traversalStats[0].lod2CellVisits,
-                 terrainHit.lodCellVisits.z);
-  if (terrainHit.lodCellVisits.x > 0)
+                 terrainHit.lodCellVisits[2]);
+  InterlockedAdd(g_traversalStats[0].lod3CellVisits,
+                 terrainHit.lodCellVisits[3]);
+  InterlockedAdd(g_traversalStats[0].lod4CellVisits,
+                 terrainHit.lodCellVisits[4]);
+  InterlockedAdd(g_traversalStats[0].lod5CellVisits,
+                 terrainHit.lodCellVisits[5]);
+  InterlockedAdd(g_traversalStats[0].lod6CellVisits,
+                 terrainHit.lodCellVisits[6]);
+  InterlockedAdd(g_traversalStats[0].lod7CellVisits,
+                 terrainHit.lodCellVisits[7]);
+  InterlockedAdd(g_traversalStats[0].lod8CellVisits,
+                 terrainHit.lodCellVisits[8]);
+  if (terrainHit.lodCellVisits[0] > 0)
     InterlockedAdd(g_traversalStats[0].lod0TraversedRays, 1u);
-  if (terrainHit.lodCellVisits.y > 0)
+  if (terrainHit.lodCellVisits[1] > 0)
     InterlockedAdd(g_traversalStats[0].lod1TraversedRays, 1u);
-  if (terrainHit.lodCellVisits.z > 0)
+  if (terrainHit.lodCellVisits[2] > 0)
     InterlockedAdd(g_traversalStats[0].lod2TraversedRays, 1u);
+  if (terrainHit.lodCellVisits[3] > 0)
+    InterlockedAdd(g_traversalStats[0].lod3TraversedRays, 1u);
+  if (terrainHit.lodCellVisits[4] > 0)
+    InterlockedAdd(g_traversalStats[0].lod4TraversedRays, 1u);
+  if (terrainHit.lodCellVisits[5] > 0)
+    InterlockedAdd(g_traversalStats[0].lod5TraversedRays, 1u);
+  if (terrainHit.lodCellVisits[6] > 0)
+    InterlockedAdd(g_traversalStats[0].lod6TraversedRays, 1u);
+  if (terrainHit.lodCellVisits[7] > 0)
+    InterlockedAdd(g_traversalStats[0].lod7TraversedRays, 1u);
+  if (terrainHit.lodCellVisits[8] > 0)
+    InterlockedAdd(g_traversalStats[0].lod8TraversedRays, 1u);
   if (terrainHit.hit) {
     InterlockedAdd(g_traversalStats[0].heightfieldHits, 1u);
     InterlockedAdd(g_traversalStats[0].heightfieldHitDistanceMeters,
                    uint(terrainHit.distance + 0.5));
-    if (terrainHit.lod == 0)
+    if (terrainHit.lod == 0u)
       InterlockedAdd(g_traversalStats[0].lod0Hits, 1u);
-    else if (terrainHit.lod == 1)
+    else if (terrainHit.lod == 1u)
       InterlockedAdd(g_traversalStats[0].lod1Hits, 1u);
-    else
+    else if (terrainHit.lod == 2u)
       InterlockedAdd(g_traversalStats[0].lod2Hits, 1u);
+    else if (terrainHit.lod == 3u)
+      InterlockedAdd(g_traversalStats[0].lod3Hits, 1u);
+    else if (terrainHit.lod == 4u)
+      InterlockedAdd(g_traversalStats[0].lod4Hits, 1u);
+    else if (terrainHit.lod == 5u)
+      InterlockedAdd(g_traversalStats[0].lod5Hits, 1u);
+    else if (terrainHit.lod == 6u)
+      InterlockedAdd(g_traversalStats[0].lod6Hits, 1u);
+    else if (terrainHit.lod == 7u)
+      InterlockedAdd(g_traversalStats[0].lod7Hits, 1u);
+    else
+      InterlockedAdd(g_traversalStats[0].lod8Hits, 1u);
   }
   if (voxelHit.hit && terrainHit.hit)
     InterlockedAdd(g_traversalStats[0].blendedHits, 1u);
@@ -744,22 +846,48 @@ void main(uint3 dispatchThreadID: SV_DispatchThreadID) {
   float3 sky = lerp(float3(0.13, 0.18, 0.24), float3(0.36, 0.48, 0.60),
                     saturate(ray.direction.y * 0.5 + 0.5));
   VoxelHit voxelHit = (VoxelHit)0;
-  if (g_settings.terrainBackend == TERRAIN_BACKEND_RAYMARCH)
-    voxelHit = traceVoxels(ray);
-  HeightfieldHit terrainHit = traceHeightfield(ray, 0.0);
+  HeightfieldHit terrainHit = (HeightfieldHit)0;
   float representationBlend = 0.0;
-  if (voxelHit.hit && terrainHit.hit) {
-    // These are separate ray traces into potentially different geometry. Blend
-    // only coincident terrain surfaces; otherwise the nearest ray intersection
-    // owns pixel.
-    float transitionStart = max(
-        g_settings.voxelRenderRadius - g_settings.voxelTransitionWidth, 0.0);
-    float horizontalDistance =
-        length(voxelHit.position.xz - g_camera.position.xz);
-    representationBlend = saturate((horizontalDistance - transitionStart) /
-                                   max(g_settings.voxelTransitionWidth, 0.001));
+  if (g_settings.terrainBackend == TERRAIN_BACKEND_RAYMARCH) {
+    if (g_settings.debugMode != DEBUG_HEIGHTFIELD_ONLY)
+      voxelHit = traceVoxels(ray);
+    if (g_settings.debugMode != DEBUG_VOXEL_ONLY) {
+      float heightfieldStart = 0.0;
+      if (g_settings.debugMode != DEBUG_HEIGHTFIELD_ONLY) {
+        float horizontalSpeed = max(length(ray.direction.xz), 1e-4);
+        heightfieldStart =
+            max(g_settings.voxelRenderRadius -
+                    g_settings.voxelTransitionWidth,
+                0.0) /
+            horizontalSpeed;
+      }
+      terrainHit = traceHeightfield(ray, heightfieldStart);
+    }
+    if (voxelHit.hit && terrainHit.hit &&
+        g_settings.debugMode != DEBUG_HEIGHTFIELD_ONLY &&
+        g_settings.debugMode != DEBUG_VOXEL_ONLY) {
+      // Independently traced surfaces only blend when they are effectively
+      // coincident. Otherwise the nearest intersection owns the pixel.
+      float surfaceTolerance =
+          max(g_settings.voxelSize, g_settings.modificationVoxelSize) * 2.0;
+      if (abs(voxelHit.distance - terrainHit.distance) > surfaceTolerance) {
+        if (voxelHit.distance < terrainHit.distance)
+          terrainHit.hit = false;
+        else
+          voxelHit.hit = false;
+      } else {
+        float transitionStart =
+            max(g_settings.voxelRenderRadius - g_settings.voxelTransitionWidth,
+                0.0);
+        float horizontalDistance =
+            length(voxelHit.position.xz - g_camera.position.xz);
+        representationBlend =
+            saturate((horizontalDistance - transitionStart) /
+                     max(g_settings.voxelTransitionWidth, 0.001));
+      }
+    }
+    recordTraversalStats(pixelCoord, voxelHit, terrainHit);
   }
-  recordTraversalStats(pixelCoord, voxelHit, terrainHit);
 
   if (g_settings.debugMode == DEBUG_HEIGHTFIELD_ONLY)
     voxelHit.hit = false;

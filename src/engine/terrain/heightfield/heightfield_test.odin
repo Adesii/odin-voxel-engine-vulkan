@@ -15,10 +15,11 @@ cache_streams_only_after_recenter :: proc(t: ^testing.T) {
 		init(
 			&cache,
 			{
-				level_count = 3,
+				level_count = MAX_LOD_LEVELS,
 				sample_count = 17,
-				spacing = {1, 4, 16},
+				spacing = {1, 2, 4, 8, 16, 32, 64, 128, 256},
 				recenter_interval_cells = 4,
+				camera_centered_level_count = MAX_LOD_LEVELS - 1,
 			},
 		),
 	)
@@ -46,4 +47,9 @@ cache_streams_only_after_recenter :: proc(t: ^testing.T) {
 	moved, moved_found := sample_nearest(&cache, 0, {4, 2})
 	testing.expect(t, moved_found)
 	testing.expect_value(t, moved.height, f32(10))
+	testing.expect_value(
+		t,
+		cache.levels[MAX_LOD_LEVELS - 1]._generation,
+		u64(1),
+	)
 }

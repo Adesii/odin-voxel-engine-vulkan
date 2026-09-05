@@ -29,6 +29,46 @@ mesh_workgroup_budgets_are_device_bounded :: proc(t: ^testing.T) {
 }
 
 @(test)
+terrain_lod_config_rejects_non_monotonic_progressions :: proc(t: ^testing.T) {
+	config := Config {
+		backend = .RAYMARCH,
+		heightfield_lod_count = 3,
+		near_voxel_distance = 32,
+		voxel_transition_width = 8,
+		heightfield_lod_end_distances = {64, 128, 256, 0, 0, 0, 0, 0, 0},
+		far_distance = 256,
+		virtual_voxel_size = {1, 2, 4, 0, 0, 0, 0, 0, 0},
+		vertical_quantization = {1, 2, 4, 0, 0, 0, 0, 0, 0},
+		heightfield_lod_transition_width = 2,
+	}
+	testing.expect(t, valid_config(config))
+
+	invalid_distance := config
+	invalid_distance.heightfield_lod_end_distances[1] =
+		invalid_distance.heightfield_lod_end_distances[0]
+	testing.expect(t, !valid_config(invalid_distance))
+
+	invalid_cell_size := config
+	invalid_cell_size.virtual_voxel_size[2] = invalid_cell_size.virtual_voxel_size[1]
+	testing.expect(t, !valid_config(invalid_cell_size))
+
+	invalid_vertical_step := config
+	invalid_vertical_step.vertical_quantization[2] = 0.5
+	testing.expect(t, !valid_config(invalid_vertical_step))
+}
+
+@(test)
+heightfield_patch_grid_covers_requested_lod_radius :: proc(t: ^testing.T) {
+	end_distance: f32 = 65_536
+	cell_size: f32 = 256
+	diameter := mesh_heightfield_grid_diameter(end_distance, cell_size)
+	testing.expect(t, diameter % 2 == 1)
+	covered_radius_cells := (diameter / 2) * MESH_HEIGHTFIELD_PATCH_CELLS
+	required_radius_cells := u32(end_distance / cell_size)
+	testing.expect(t, covered_radius_cells >= required_radius_cells)
+}
+
+@(test)
 mesh_surface_candidates_cross_brick_and_chunk_boundaries :: proc(t: ^testing.T) {
 	world: voxel_terrain.World
 	world.chunks = make(map[voxel_terrain.Chunk_Coord]^voxel_terrain.Chunk)

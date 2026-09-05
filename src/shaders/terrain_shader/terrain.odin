@@ -27,16 +27,22 @@ TerrainSettings :: struct #align(16) {
 	visualSeedLo: u32, // offset: 64, size: 4
 	visualSeedHi: u32, // offset: 68, size: 4
 	_pad_80: [8]u8,
-	lodDistances: [4]f32, // offset: 80, size: 16
-	virtualVoxelSizes: [4]f32, // offset: 96, size: 16
-	verticalSteps: [4]f32, // offset: 112, size: 16
-	overrideBoundsMin: [3]f32, // offset: 128, size: 12
-	statsSampleStride: u32, // offset: 140, size: 4
-	overrideBoundsMax: [3]f32, // offset: 144, size: 12
-	heightfieldTransitionWidth: f32, // offset: 156, size: 4
-	terrainBackend: u32, // offset: 160, size: 4
-	_pad_176: [12]u8,
-	_padding: [3]u32, // offset: 176, size: 12
+	lodDistances0: [4]f32, // offset: 80, size: 16
+	lodDistances1: [4]f32, // offset: 96, size: 16
+	lodDistances2: [4]f32, // offset: 112, size: 16
+	virtualVoxelSizes0: [4]f32, // offset: 128, size: 16
+	virtualVoxelSizes1: [4]f32, // offset: 144, size: 16
+	virtualVoxelSizes2: [4]f32, // offset: 160, size: 16
+	verticalSteps0: [4]f32, // offset: 176, size: 16
+	verticalSteps1: [4]f32, // offset: 192, size: 16
+	verticalSteps2: [4]f32, // offset: 208, size: 16
+	overrideBoundsMin: [3]f32, // offset: 224, size: 12
+	statsSampleStride: u32, // offset: 236, size: 4
+	overrideBoundsMax: [3]f32, // offset: 240, size: 12
+	heightfieldTransitionWidth: f32, // offset: 252, size: 4
+	terrainBackend: u32, // offset: 256, size: 4
+	_pad_272: [12]u8,
+	_padding: [3]u32, // offset: 272, size: 12
 }
 
 TerrainLevel :: struct #align(16) {
@@ -97,19 +103,37 @@ TerrainTraversalStats :: struct #align(16) {
 	lod0Hits: u32, // offset: 20, size: 4
 	lod1Hits: u32, // offset: 24, size: 4
 	lod2Hits: u32, // offset: 28, size: 4
-	lod0CellVisits: u32, // offset: 32, size: 4
-	lod1CellVisits: u32, // offset: 36, size: 4
-	lod2CellVisits: u32, // offset: 40, size: 4
-	lod0TraversedRays: u32, // offset: 44, size: 4
-	lod1TraversedRays: u32, // offset: 48, size: 4
-	lod2TraversedRays: u32, // offset: 52, size: 4
-	voxelOnlyHits: u32, // offset: 56, size: 4
-	heightfieldOnlyHits: u32, // offset: 60, size: 4
-	blendedHits: u32, // offset: 64, size: 4
-	missedRays: u32, // offset: 68, size: 4
-	voxelCellVisits: u32, // offset: 72, size: 4
-	maxVoxelCellVisits: u32, // offset: 76, size: 4
-	_padding: [2]u32, // offset: 80, size: 8
+	lod3Hits: u32, // offset: 32, size: 4
+	lod4Hits: u32, // offset: 36, size: 4
+	lod5Hits: u32, // offset: 40, size: 4
+	lod6Hits: u32, // offset: 44, size: 4
+	lod7Hits: u32, // offset: 48, size: 4
+	lod8Hits: u32, // offset: 52, size: 4
+	lod0CellVisits: u32, // offset: 56, size: 4
+	lod1CellVisits: u32, // offset: 60, size: 4
+	lod2CellVisits: u32, // offset: 64, size: 4
+	lod3CellVisits: u32, // offset: 68, size: 4
+	lod4CellVisits: u32, // offset: 72, size: 4
+	lod5CellVisits: u32, // offset: 76, size: 4
+	lod6CellVisits: u32, // offset: 80, size: 4
+	lod7CellVisits: u32, // offset: 84, size: 4
+	lod8CellVisits: u32, // offset: 88, size: 4
+	lod0TraversedRays: u32, // offset: 92, size: 4
+	lod1TraversedRays: u32, // offset: 96, size: 4
+	lod2TraversedRays: u32, // offset: 100, size: 4
+	lod3TraversedRays: u32, // offset: 104, size: 4
+	lod4TraversedRays: u32, // offset: 108, size: 4
+	lod5TraversedRays: u32, // offset: 112, size: 4
+	lod6TraversedRays: u32, // offset: 116, size: 4
+	lod7TraversedRays: u32, // offset: 120, size: 4
+	lod8TraversedRays: u32, // offset: 124, size: 4
+	voxelOnlyHits: u32, // offset: 128, size: 4
+	heightfieldOnlyHits: u32, // offset: 132, size: 4
+	blendedHits: u32, // offset: 136, size: 4
+	missedRays: u32, // offset: 140, size: 4
+	voxelCellVisits: u32, // offset: 144, size: 4
+	maxVoxelCellVisits: u32, // offset: 148, size: 4
+	_padding: [2]u32, // offset: 152, size: 8
 }
 
 // --- TERRAIN Pipeline Constants ---
@@ -117,7 +141,7 @@ TERRAIN_MAIN_ENTRY_POINT :: "main"
 TERRAIN_THREAD_X :: 8
 TERRAIN_THREAD_Y :: 8
 TERRAIN_THREAD_Z :: 1
-TERRAIN_UNIFORM_BUFFER_SIZE :: 336
+TERRAIN_UNIFORM_BUFFER_SIZE :: 432
 TERRAIN_BINDING_G_CAMERA :: 0
 TERRAIN_BINDING_G_SETTINGS :: 0
 TERRAIN_BINDING_G_LEVELS :: 1

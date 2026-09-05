@@ -50,7 +50,7 @@
         },
         {
             "name": "g_settings",
-            "binding": {"kind": "uniform", "offset": 144, "size": 192, "elementStride": 0},
+            "binding": {"kind": "uniform", "offset": 144, "size": 288, "elementStride": 0},
             "type": {
                 "kind": "struct",
                 "name": "TerrainSettings",
@@ -200,7 +200,7 @@
                         "binding": {"kind": "uniform", "offset": 68, "size": 4, "elementStride": 0}
                     },
                     {
-                        "name": "lodDistances",
+                        "name": "lodDistances0",
                         "type": {
                             "kind": "vector",
                             "elementCount": 4,
@@ -212,7 +212,7 @@
                         "binding": {"kind": "uniform", "offset": 80, "size": 16, "elementStride": 4}
                     },
                     {
-                        "name": "virtualVoxelSizes",
+                        "name": "lodDistances1",
                         "type": {
                             "kind": "vector",
                             "elementCount": 4,
@@ -224,7 +224,7 @@
                         "binding": {"kind": "uniform", "offset": 96, "size": 16, "elementStride": 4}
                     },
                     {
-                        "name": "verticalSteps",
+                        "name": "lodDistances2",
                         "type": {
                             "kind": "vector",
                             "elementCount": 4,
@@ -236,6 +236,78 @@
                         "binding": {"kind": "uniform", "offset": 112, "size": 16, "elementStride": 4}
                     },
                     {
+                        "name": "virtualVoxelSizes0",
+                        "type": {
+                            "kind": "vector",
+                            "elementCount": 4,
+                            "elementType": {
+                                "kind": "scalar",
+                                "scalarType": "float32"
+                            }
+                        },
+                        "binding": {"kind": "uniform", "offset": 128, "size": 16, "elementStride": 4}
+                    },
+                    {
+                        "name": "virtualVoxelSizes1",
+                        "type": {
+                            "kind": "vector",
+                            "elementCount": 4,
+                            "elementType": {
+                                "kind": "scalar",
+                                "scalarType": "float32"
+                            }
+                        },
+                        "binding": {"kind": "uniform", "offset": 144, "size": 16, "elementStride": 4}
+                    },
+                    {
+                        "name": "virtualVoxelSizes2",
+                        "type": {
+                            "kind": "vector",
+                            "elementCount": 4,
+                            "elementType": {
+                                "kind": "scalar",
+                                "scalarType": "float32"
+                            }
+                        },
+                        "binding": {"kind": "uniform", "offset": 160, "size": 16, "elementStride": 4}
+                    },
+                    {
+                        "name": "verticalSteps0",
+                        "type": {
+                            "kind": "vector",
+                            "elementCount": 4,
+                            "elementType": {
+                                "kind": "scalar",
+                                "scalarType": "float32"
+                            }
+                        },
+                        "binding": {"kind": "uniform", "offset": 176, "size": 16, "elementStride": 4}
+                    },
+                    {
+                        "name": "verticalSteps1",
+                        "type": {
+                            "kind": "vector",
+                            "elementCount": 4,
+                            "elementType": {
+                                "kind": "scalar",
+                                "scalarType": "float32"
+                            }
+                        },
+                        "binding": {"kind": "uniform", "offset": 192, "size": 16, "elementStride": 4}
+                    },
+                    {
+                        "name": "verticalSteps2",
+                        "type": {
+                            "kind": "vector",
+                            "elementCount": 4,
+                            "elementType": {
+                                "kind": "scalar",
+                                "scalarType": "float32"
+                            }
+                        },
+                        "binding": {"kind": "uniform", "offset": 208, "size": 16, "elementStride": 4}
+                    },
+                    {
                         "name": "overrideBoundsMin",
                         "type": {
                             "kind": "vector",
@@ -245,7 +317,7 @@
                                 "scalarType": "float32"
                             }
                         },
-                        "binding": {"kind": "uniform", "offset": 128, "size": 12, "elementStride": 4}
+                        "binding": {"kind": "uniform", "offset": 224, "size": 12, "elementStride": 4}
                     },
                     {
                         "name": "statsSampleStride",
@@ -253,7 +325,7 @@
                             "kind": "scalar",
                             "scalarType": "uint32"
                         },
-                        "binding": {"kind": "uniform", "offset": 140, "size": 4, "elementStride": 0}
+                        "binding": {"kind": "uniform", "offset": 236, "size": 4, "elementStride": 0}
                     },
                     {
                         "name": "overrideBoundsMax",
@@ -265,7 +337,7 @@
                                 "scalarType": "float32"
                             }
                         },
-                        "binding": {"kind": "uniform", "offset": 144, "size": 12, "elementStride": 4}
+                        "binding": {"kind": "uniform", "offset": 240, "size": 12, "elementStride": 4}
                     },
                     {
                         "name": "heightfieldTransitionWidth",
@@ -273,7 +345,7 @@
                             "kind": "scalar",
                             "scalarType": "float32"
                         },
-                        "binding": {"kind": "uniform", "offset": 156, "size": 4, "elementStride": 0}
+                        "binding": {"kind": "uniform", "offset": 252, "size": 4, "elementStride": 0}
                     },
                     {
                         "name": "terrainBackend",
@@ -281,7 +353,7 @@
                             "kind": "scalar",
                             "scalarType": "uint32"
                         },
-                        "binding": {"kind": "uniform", "offset": 160, "size": 4, "elementStride": 0}
+                        "binding": {"kind": "uniform", "offset": 256, "size": 4, "elementStride": 0}
                     },
                     {
                         "name": "_padding",
@@ -293,7 +365,7 @@
                                 "scalarType": "uint32"
                             }
                         },
-                        "binding": {"kind": "uniform", "offset": 176, "size": 12, "elementStride": 4}
+                        "binding": {"kind": "uniform", "offset": 272, "size": 12, "elementStride": 4}
                     }
                 ]
             }
@@ -737,7 +809,7 @@
                             "binding": {"kind": "uniform", "offset": 28, "size": 4, "elementStride": 0}
                         },
                         {
-                            "name": "lod0CellVisits",
+                            "name": "lod3Hits",
                             "type": {
                                 "kind": "scalar",
                                 "scalarType": "uint32"
@@ -745,7 +817,7 @@
                             "binding": {"kind": "uniform", "offset": 32, "size": 4, "elementStride": 0}
                         },
                         {
-                            "name": "lod1CellVisits",
+                            "name": "lod4Hits",
                             "type": {
                                 "kind": "scalar",
                                 "scalarType": "uint32"
@@ -753,7 +825,7 @@
                             "binding": {"kind": "uniform", "offset": 36, "size": 4, "elementStride": 0}
                         },
                         {
-                            "name": "lod2CellVisits",
+                            "name": "lod5Hits",
                             "type": {
                                 "kind": "scalar",
                                 "scalarType": "uint32"
@@ -761,7 +833,7 @@
                             "binding": {"kind": "uniform", "offset": 40, "size": 4, "elementStride": 0}
                         },
                         {
-                            "name": "lod0TraversedRays",
+                            "name": "lod6Hits",
                             "type": {
                                 "kind": "scalar",
                                 "scalarType": "uint32"
@@ -769,7 +841,7 @@
                             "binding": {"kind": "uniform", "offset": 44, "size": 4, "elementStride": 0}
                         },
                         {
-                            "name": "lod1TraversedRays",
+                            "name": "lod7Hits",
                             "type": {
                                 "kind": "scalar",
                                 "scalarType": "uint32"
@@ -777,7 +849,7 @@
                             "binding": {"kind": "uniform", "offset": 48, "size": 4, "elementStride": 0}
                         },
                         {
-                            "name": "lod2TraversedRays",
+                            "name": "lod8Hits",
                             "type": {
                                 "kind": "scalar",
                                 "scalarType": "uint32"
@@ -785,7 +857,7 @@
                             "binding": {"kind": "uniform", "offset": 52, "size": 4, "elementStride": 0}
                         },
                         {
-                            "name": "voxelOnlyHits",
+                            "name": "lod0CellVisits",
                             "type": {
                                 "kind": "scalar",
                                 "scalarType": "uint32"
@@ -793,7 +865,7 @@
                             "binding": {"kind": "uniform", "offset": 56, "size": 4, "elementStride": 0}
                         },
                         {
-                            "name": "heightfieldOnlyHits",
+                            "name": "lod1CellVisits",
                             "type": {
                                 "kind": "scalar",
                                 "scalarType": "uint32"
@@ -801,7 +873,7 @@
                             "binding": {"kind": "uniform", "offset": 60, "size": 4, "elementStride": 0}
                         },
                         {
-                            "name": "blendedHits",
+                            "name": "lod2CellVisits",
                             "type": {
                                 "kind": "scalar",
                                 "scalarType": "uint32"
@@ -809,7 +881,7 @@
                             "binding": {"kind": "uniform", "offset": 64, "size": 4, "elementStride": 0}
                         },
                         {
-                            "name": "missedRays",
+                            "name": "lod3CellVisits",
                             "type": {
                                 "kind": "scalar",
                                 "scalarType": "uint32"
@@ -817,7 +889,7 @@
                             "binding": {"kind": "uniform", "offset": 68, "size": 4, "elementStride": 0}
                         },
                         {
-                            "name": "voxelCellVisits",
+                            "name": "lod4CellVisits",
                             "type": {
                                 "kind": "scalar",
                                 "scalarType": "uint32"
@@ -825,12 +897,156 @@
                             "binding": {"kind": "uniform", "offset": 72, "size": 4, "elementStride": 0}
                         },
                         {
-                            "name": "maxVoxelCellVisits",
+                            "name": "lod5CellVisits",
                             "type": {
                                 "kind": "scalar",
                                 "scalarType": "uint32"
                             },
                             "binding": {"kind": "uniform", "offset": 76, "size": 4, "elementStride": 0}
+                        },
+                        {
+                            "name": "lod6CellVisits",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "uint32"
+                            },
+                            "binding": {"kind": "uniform", "offset": 80, "size": 4, "elementStride": 0}
+                        },
+                        {
+                            "name": "lod7CellVisits",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "uint32"
+                            },
+                            "binding": {"kind": "uniform", "offset": 84, "size": 4, "elementStride": 0}
+                        },
+                        {
+                            "name": "lod8CellVisits",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "uint32"
+                            },
+                            "binding": {"kind": "uniform", "offset": 88, "size": 4, "elementStride": 0}
+                        },
+                        {
+                            "name": "lod0TraversedRays",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "uint32"
+                            },
+                            "binding": {"kind": "uniform", "offset": 92, "size": 4, "elementStride": 0}
+                        },
+                        {
+                            "name": "lod1TraversedRays",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "uint32"
+                            },
+                            "binding": {"kind": "uniform", "offset": 96, "size": 4, "elementStride": 0}
+                        },
+                        {
+                            "name": "lod2TraversedRays",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "uint32"
+                            },
+                            "binding": {"kind": "uniform", "offset": 100, "size": 4, "elementStride": 0}
+                        },
+                        {
+                            "name": "lod3TraversedRays",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "uint32"
+                            },
+                            "binding": {"kind": "uniform", "offset": 104, "size": 4, "elementStride": 0}
+                        },
+                        {
+                            "name": "lod4TraversedRays",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "uint32"
+                            },
+                            "binding": {"kind": "uniform", "offset": 108, "size": 4, "elementStride": 0}
+                        },
+                        {
+                            "name": "lod5TraversedRays",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "uint32"
+                            },
+                            "binding": {"kind": "uniform", "offset": 112, "size": 4, "elementStride": 0}
+                        },
+                        {
+                            "name": "lod6TraversedRays",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "uint32"
+                            },
+                            "binding": {"kind": "uniform", "offset": 116, "size": 4, "elementStride": 0}
+                        },
+                        {
+                            "name": "lod7TraversedRays",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "uint32"
+                            },
+                            "binding": {"kind": "uniform", "offset": 120, "size": 4, "elementStride": 0}
+                        },
+                        {
+                            "name": "lod8TraversedRays",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "uint32"
+                            },
+                            "binding": {"kind": "uniform", "offset": 124, "size": 4, "elementStride": 0}
+                        },
+                        {
+                            "name": "voxelOnlyHits",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "uint32"
+                            },
+                            "binding": {"kind": "uniform", "offset": 128, "size": 4, "elementStride": 0}
+                        },
+                        {
+                            "name": "heightfieldOnlyHits",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "uint32"
+                            },
+                            "binding": {"kind": "uniform", "offset": 132, "size": 4, "elementStride": 0}
+                        },
+                        {
+                            "name": "blendedHits",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "uint32"
+                            },
+                            "binding": {"kind": "uniform", "offset": 136, "size": 4, "elementStride": 0}
+                        },
+                        {
+                            "name": "missedRays",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "uint32"
+                            },
+                            "binding": {"kind": "uniform", "offset": 140, "size": 4, "elementStride": 0}
+                        },
+                        {
+                            "name": "voxelCellVisits",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "uint32"
+                            },
+                            "binding": {"kind": "uniform", "offset": 144, "size": 4, "elementStride": 0}
+                        },
+                        {
+                            "name": "maxVoxelCellVisits",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "uint32"
+                            },
+                            "binding": {"kind": "uniform", "offset": 148, "size": 4, "elementStride": 0}
                         },
                         {
                             "name": "_padding",
@@ -842,7 +1058,7 @@
                                     "scalarType": "uint32"
                                 }
                             },
-                            "binding": {"kind": "uniform", "offset": 80, "size": 8, "elementStride": 4}
+                            "binding": {"kind": "uniform", "offset": 152, "size": 8, "elementStride": 4}
                         }
                     ]
                 }
@@ -888,7 +1104,7 @@
                 },
                 {
                     "name": "g_settings",
-                    "binding": {"kind": "uniform", "offset": 144, "size": 192, "elementStride": 0}
+                    "binding": {"kind": "uniform", "offset": 144, "size": 288, "elementStride": 0}
                 },
                 {
                     "name": "g_levels",

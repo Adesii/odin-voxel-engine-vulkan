@@ -2,7 +2,7 @@ package heightfield
 
 import "core:math"
 
-MAX_LOD_LEVELS :: 3
+MAX_LOD_LEVELS :: 9
 
 Sample :: struct {
 	height:             f32,
@@ -23,6 +23,7 @@ Cache_Config :: struct {
 	sample_count:            u32,
 	spacing:                 [MAX_LOD_LEVELS]f32,
 	recenter_interval_cells: u32,
+	camera_centered_level_count: u32,
 }
 
 Level :: struct {
@@ -47,7 +48,9 @@ valid_config :: proc(config: Cache_Config) -> bool {
 	if config.level_count == 0 ||
 	   config.level_count > MAX_LOD_LEVELS ||
 	   config.sample_count < 2 ||
-	   config.recenter_interval_cells == 0 {
+	   config.recenter_interval_cells == 0 ||
+	   config.recenter_interval_cells >= config.sample_count ||
+	   config.camera_centered_level_count > config.level_count {
 		return false
 	}
 	for index in 0 ..< int(config.level_count) {
@@ -65,7 +68,7 @@ init :: proc(cache: ^Cache, config: Cache_Config) -> bool {
 	}
 	cache^ = {}
 	cache.config = config
-	level_sample_count := int(config.sample_count * config.sample_count)
+	level_sample_count := int(config.sample_count) * int(config.sample_count)
 	cache.samples = make([]Sample, level_sample_count * int(config.level_count))
 	for index in 0 ..< int(config.level_count) {
 		cache.levels[index] = {
@@ -80,6 +83,9 @@ init :: proc(cache: ^Cache, config: Cache_Config) -> bool {
 }
 
 level_origin_for_camera :: proc(level: Level, config: Cache_Config, camera: [2]f32) -> [2]f32 {
+	if level.lod >= config.camera_centered_level_count {
+		return {-level.extent * 0.5, -level.extent * 0.5}
+	}
 	snap := level.spacing * f32(config.recenter_interval_cells)
 	center := [2]f32 {
 		math.floor(camera.x / snap + 0.5) * snap,

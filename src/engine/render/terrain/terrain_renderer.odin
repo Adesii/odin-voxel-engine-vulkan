@@ -7,15 +7,14 @@ import voxel_terrain "../../terrain/voxel"
 import view "../../view"
 import shader_assets "../shader_assets"
 import vulkan "../vulkan"
-import "core:fmt"
-import "core:math"
 import "core:mem"
 import "core:slice"
 import vk "vendor:vulkan"
 
 MAX_RENDERED_OVERRIDES :: 4_096
 MAX_OVERRIDE_TABLE_SLOTS :: 16_384
-MAX_GPU_SAMPLES :: heightfield.MAX_LOD_LEVELS * 1024 * 1024
+MAX_GPU_SAMPLES_PER_LEVEL :: 320 * 320
+MAX_GPU_SAMPLES :: heightfield.MAX_LOD_LEVELS * MAX_GPU_SAMPLES_PER_LEVEL
 MAX_GPU_CHUNKS :: 2_048
 MAX_GPU_BRICKS :: MAX_GPU_CHUNKS * voxel_terrain.BRICKS_PER_CHUNK
 VOXEL_MATERIALS_PER_WORD :: 4
@@ -62,34 +61,42 @@ Material_Render_Info :: struct {
 
 Config :: struct {
 	backend:                          Backend,
+	heightfield_lod_count:            u32,
 	near_voxel_distance:              f32,
 	voxel_transition_width:           f32,
-	heightfield_lod_end_distances:    [3]f32,
+	heightfield_lod_end_distances:    [heightfield.MAX_LOD_LEVELS]f32,
 	far_distance:                     f32,
-	virtual_voxel_size:               [3]f32,
-	vertical_quantization:            [3]f32,
+	virtual_voxel_size:               [heightfield.MAX_LOD_LEVELS]f32,
+	vertical_quantization:            [heightfield.MAX_LOD_LEVELS]f32,
 	heightfield_lod_transition_width: f32,
 	stats_sample_stride:              u32,
 }
 
 valid_config :: proc(config: Config) -> bool {
-
+	if (config.backend != .RAYMARCH && config.backend != .MESH_SHADER) ||
+	   config.heightfield_lod_count == 0 ||
+	   config.heightfield_lod_count > heightfield.MAX_LOD_LEVELS ||
+	   config.near_voxel_distance <= 0 ||
+	   config.voxel_transition_width < 0 ||
+	   config.voxel_transition_width >= config.near_voxel_distance ||
+	   config.heightfield_lod_transition_width < 0 {
+		return false
+	}
+	for index in 0 ..< int(config.heightfield_lod_count) {
+		previous_distance :=
+			index == 0 ? config.near_voxel_distance : config.heightfield_lod_end_distances[index - 1]
+		if config.heightfield_lod_end_distances[index] <= previous_distance ||
+		   config.virtual_voxel_size[index] <= 0 ||
+		   (index > 0 && config.virtual_voxel_size[index] <= config.virtual_voxel_size[index - 1]) ||
+		   config.vertical_quantization[index] <= 0 ||
+		   (index > 0 &&
+		    config.vertical_quantization[index] < config.vertical_quantization[index - 1]) {
+			return false
+		}
+	}
 	return(
-		(config.backend == .RAYMARCH || config.backend == .MESH_SHADER) &&
-		config.near_voxel_distance > 0 &&
-		config.voxel_transition_width >= 0 &&
-		config.voxel_transition_width < config.near_voxel_distance &&
-		config.heightfield_lod_end_distances[0] > config.near_voxel_distance &&
-		config.heightfield_lod_end_distances[1] > config.heightfield_lod_end_distances[0] &&
-		config.heightfield_lod_end_distances[2] > config.heightfield_lod_end_distances[1] &&
-		config.far_distance == config.heightfield_lod_end_distances[2] &&
-		config.virtual_voxel_size[0] > 0 &&
-		config.virtual_voxel_size[1] > config.virtual_voxel_size[0] &&
-		config.virtual_voxel_size[2] > config.virtual_voxel_size[1] &&
-		config.vertical_quantization[0] > 0 &&
-		config.vertical_quantization[1] >= config.vertical_quantization[0] &&
-		config.vertical_quantization[2] >= config.vertical_quantization[1] &&
-		config.heightfield_lod_transition_width >= 0 \
+		config.far_distance ==
+		config.heightfield_lod_end_distances[config.heightfield_lod_count - 1] \
 	)
 }
 
@@ -101,8 +108,8 @@ Traversal_Stats :: struct {
 	maximum_heightfield_cells:        u32,
 	average_heightfield_hit_distance: f32,
 	heightfield_hits:                 u32,
-	lod_hits:                         [3]u32,
-	average_lod_cells:                [3]f32,
+	lod_hits:                         [heightfield.MAX_LOD_LEVELS]u32,
+	average_lod_cells:                [heightfield.MAX_LOD_LEVELS]f32,
 	voxel_only_hits:                  u32,
 	heightfield_only_hits:            u32,
 	blended_hits:                     u32,
@@ -146,6 +153,7 @@ Context :: struct {
 	sorted_chunk_coords:       [dynamic]voxel_terrain.Chunk_Coord,
 	voxel_chunk_table:         []bindings.VoxelChunkSlot,
 	uploaded_generation:       [vulkan.MAX_FRAMES_IN_FLIGHT]u64,
+	uploaded_heightfield_generation: [vulkan.MAX_FRAMES_IN_FLIGHT]u64,
 	uploaded_edit_count:       [vulkan.MAX_FRAMES_IN_FLIGHT]u64,
 	stats_ready:               [vulkan.MAX_FRAMES_IN_FLIGHT]bool,
 	stats:                     Traversal_Stats,
@@ -255,6 +263,7 @@ init :: proc(ctx: ^Context, r: ^vulkan.Renderer) {
 	ctx.override_table = make([]bindings.SparseVoxel, MAX_OVERRIDE_TABLE_SLOTS)
 	ctx.voxel_chunk_table = make([]bindings.VoxelChunkSlot, MAX_GPU_CHUNK_TABLE_SLOTS)
 	ctx.uploaded_generation = {~u64(0), ~u64(0)}
+	ctx.uploaded_heightfield_generation = {~u64(0), ~u64(0)}
 	ctx.uploaded_edit_count = {~u64(0), ~u64(0)}
 	mesh_init(ctx, r)
 	if r.timestamp_supported {
@@ -777,7 +786,40 @@ update_traversal_stats :: proc(ctx: ^Context, r: ^vulkan.Renderer, frame_index: 
 		average_cells: f32
 		average_voxel_cells: f32
 		average_hit_distance: f32
-		average_lod_cells: [3]f32
+		average_lod_cells: [heightfield.MAX_LOD_LEVELS]f32
+		raw_lod_hits := [heightfield.MAX_LOD_LEVELS]u32 {
+			raw.lod0Hits,
+			raw.lod1Hits,
+			raw.lod2Hits,
+			raw.lod3Hits,
+			raw.lod4Hits,
+			raw.lod5Hits,
+			raw.lod6Hits,
+			raw.lod7Hits,
+			raw.lod8Hits,
+		}
+		raw_lod_cells := [heightfield.MAX_LOD_LEVELS]u32 {
+			raw.lod0CellVisits,
+			raw.lod1CellVisits,
+			raw.lod2CellVisits,
+			raw.lod3CellVisits,
+			raw.lod4CellVisits,
+			raw.lod5CellVisits,
+			raw.lod6CellVisits,
+			raw.lod7CellVisits,
+			raw.lod8CellVisits,
+		}
+		raw_lod_rays := [heightfield.MAX_LOD_LEVELS]u32 {
+			raw.lod0TraversedRays,
+			raw.lod1TraversedRays,
+			raw.lod2TraversedRays,
+			raw.lod3TraversedRays,
+			raw.lod4TraversedRays,
+			raw.lod5TraversedRays,
+			raw.lod6TraversedRays,
+			raw.lod7TraversedRays,
+			raw.lod8TraversedRays,
+		}
 		if raw.sampledRays > 0 {
 			average_cells = f32(raw.heightfieldCellVisits) / f32(raw.sampledRays)
 			average_voxel_cells = f32(raw.voxelCellVisits) / f32(raw.sampledRays)
@@ -785,14 +827,11 @@ update_traversal_stats :: proc(ctx: ^Context, r: ^vulkan.Renderer, frame_index: 
 		if raw.heightfieldHits > 0 {
 			average_hit_distance = f32(raw.heightfieldHitDistanceMeters) / f32(raw.heightfieldHits)
 		}
-		if raw.lod0TraversedRays > 0 {
-			average_lod_cells[0] = f32(raw.lod0CellVisits) / f32(raw.lod0TraversedRays)
-		}
-		if raw.lod1TraversedRays > 0 {
-			average_lod_cells[1] = f32(raw.lod1CellVisits) / f32(raw.lod1TraversedRays)
-		}
-		if raw.lod2TraversedRays > 0 {
-			average_lod_cells[2] = f32(raw.lod2CellVisits) / f32(raw.lod2TraversedRays)
+		for index in 0 ..< heightfield.MAX_LOD_LEVELS {
+			if raw_lod_rays[index] > 0 {
+				average_lod_cells[index] =
+					f32(raw_lod_cells[index]) / f32(raw_lod_rays[index])
+			}
 		}
 		ctx.stats = {
 			sampled_rays                     = raw.sampledRays,
@@ -802,7 +841,7 @@ update_traversal_stats :: proc(ctx: ^Context, r: ^vulkan.Renderer, frame_index: 
 			maximum_heightfield_cells        = raw.maxHeightfieldCellVisits,
 			average_heightfield_hit_distance = average_hit_distance,
 			heightfield_hits                 = raw.heightfieldHits,
-			lod_hits                         = {raw.lod0Hits, raw.lod1Hits, raw.lod2Hits},
+			lod_hits                         = raw_lod_hits,
 			average_lod_cells                = average_lod_cells,
 			voxel_only_hits                  = raw.voxelOnlyHits,
 			heightfield_only_hits            = raw.heightfieldOnlyHits,
@@ -826,36 +865,72 @@ update_frame_data :: proc(
 	assert(len(input.terrain_materials) > 0)
 	assert(len(input.materials) + len(input.terrain_materials) <= MAX_GPU_MATERIALS)
 	assert(valid_config(input.config))
+	assert(
+		input.cache.config.level_count == input.config.heightfield_lod_count,
+		"Heightfield cache and renderer LOD counts must match",
+	)
 	update_traversal_stats(ctx, r, frame_index)
 	mask, bounds_min, bounds_max := build_override_table(ctx, input.overrides)
 	upload_voxel_buffers(ctx, r, input, frame_index)
-	level_count := int(input.cache.config.level_count)
-	lod_distances := [4]f32 {
+	level_count := int(input.config.heightfield_lod_count)
+	lod_distances_0 := [4]f32 {
 		input.config.heightfield_lod_end_distances[0],
 		input.config.heightfield_lod_end_distances[1],
 		input.config.heightfield_lod_end_distances[2],
+		input.config.heightfield_lod_end_distances[3],
+	}
+	lod_distances_1 := [4]f32 {
+		input.config.heightfield_lod_end_distances[4],
+		input.config.heightfield_lod_end_distances[5],
+		input.config.heightfield_lod_end_distances[6],
+		input.config.heightfield_lod_end_distances[7],
+	}
+	lod_distances_2 := [4]f32 {
+		input.config.heightfield_lod_end_distances[8],
+		input.config.far_distance,
+		input.config.far_distance,
 		input.config.far_distance,
 	}
-	virtual_voxel_sizes := [4]f32 {
+	virtual_voxel_sizes_0 := [4]f32 {
 		input.config.virtual_voxel_size[0],
 		input.config.virtual_voxel_size[1],
 		input.config.virtual_voxel_size[2],
-		input.config.virtual_voxel_size[2],
+		input.config.virtual_voxel_size[3],
 	}
-	vertical_steps := [4]f32 {
+	virtual_voxel_sizes_1 := [4]f32 {
+		input.config.virtual_voxel_size[4],
+		input.config.virtual_voxel_size[5],
+		input.config.virtual_voxel_size[6],
+		input.config.virtual_voxel_size[7],
+	}
+	virtual_voxel_sizes_2 := [4]f32 {
+		input.config.virtual_voxel_size[8],
+		input.config.virtual_voxel_size[8],
+		input.config.virtual_voxel_size[8],
+		input.config.virtual_voxel_size[8],
+	}
+	vertical_steps_0 := [4]f32 {
 		input.config.vertical_quantization[0],
 		input.config.vertical_quantization[1],
 		input.config.vertical_quantization[2],
-		input.config.vertical_quantization[2],
+		input.config.vertical_quantization[3],
+	}
+	vertical_steps_1 := [4]f32 {
+		input.config.vertical_quantization[4],
+		input.config.vertical_quantization[5],
+		input.config.vertical_quantization[6],
+		input.config.vertical_quantization[7],
+	}
+	vertical_steps_2 := [4]f32 {
+		input.config.vertical_quantization[8],
+		input.config.vertical_quantization[8],
+		input.config.vertical_quantization[8],
+		input.config.vertical_quantization[8],
 	}
 	levels: [heightfield.MAX_LOD_LEVELS]bindings.TerrainLevel
 	for index in 0 ..< level_count {
 		source := input.cache.levels[index]
-		ratio := input.config.virtual_voxel_size[index] / source.spacing
-		// if (math.abs(ratio - math.round(ratio)) < 0.0001) {
-		// 	fmt.printf("ratio : %f at level %i", ratio, index)
-		// }
-		// assert(math.abs(ratio - math.round(ratio)) < 0.0001)
+
 		levels[index] = {
 			origin       = source.origin,
 			spacing      = source.spacing,
@@ -875,7 +950,7 @@ update_frame_data :: proc(
 			worldRadius = input.world_radius,
 			maxDistance = input.config.far_distance,
 			modificationVoxelSize = input.overrides.voxel_size,
-			levelCount = input.cache.config.level_count,
+			levelCount = input.config.heightfield_lod_count,
 			overrideTableMask = mask,
 			debugMode = u32(input.debug_mode),
 			debugRingRadius = input.debug_ring_radius,
@@ -890,9 +965,15 @@ update_frame_data :: proc(
 			terrainMaterialCount = u32(len(input.terrain_materials)),
 			visualSeedLo = u32(input.visual_seed),
 			visualSeedHi = u32(input.visual_seed >> 32),
-			lodDistances = lod_distances,
-			virtualVoxelSizes = virtual_voxel_sizes,
-			verticalSteps = vertical_steps,
+			lodDistances0 = lod_distances_0,
+			lodDistances1 = lod_distances_1,
+			lodDistances2 = lod_distances_2,
+			virtualVoxelSizes0 = virtual_voxel_sizes_0,
+			virtualVoxelSizes1 = virtual_voxel_sizes_1,
+			virtualVoxelSizes2 = virtual_voxel_sizes_2,
+			verticalSteps0 = vertical_steps_0,
+			verticalSteps1 = vertical_steps_1,
+			verticalSteps2 = vertical_steps_2,
 			overrideBoundsMin = bounds_min,
 			statsSampleStride = input.config.stats_sample_stride,
 			overrideBoundsMax = bounds_max,
@@ -910,13 +991,16 @@ update_frame_data :: proc(
 	render_material_count := len(input.materials) + len(input.terrain_materials)
 
 	vulkan.write_buffer(r, &ctx.uniform_buffers[frame_index], &uniforms, size_of(uniforms))
-	vulkan.write_buffer(r, &ctx.level_buffers[frame_index], &levels, size_of(levels))
-	vulkan.write_buffer(
-		r,
-		&ctx.sample_buffers[frame_index],
-		raw_data(input.cache.samples),
-		len(input.cache.samples) * size_of(heightfield.Sample),
-	)
+	if ctx.uploaded_heightfield_generation[frame_index] != input.cache.generation {
+		vulkan.write_buffer(r, &ctx.level_buffers[frame_index], &levels, size_of(levels))
+		vulkan.write_buffer(
+			r,
+			&ctx.sample_buffers[frame_index],
+			raw_data(input.cache.samples),
+			len(input.cache.samples) * size_of(heightfield.Sample),
+		)
+		ctx.uploaded_heightfield_generation[frame_index] = input.cache.generation
+	}
 	vulkan.write_buffer(
 		r,
 		&ctx.material_buffers[frame_index],

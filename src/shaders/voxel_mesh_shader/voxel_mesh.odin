@@ -13,7 +13,29 @@ MeshSettings :: struct #align(16) {
 	visualSeedLo: u32, // offset: 100, size: 4
 	visualSeedHi: u32, // offset: 104, size: 4
 	debugMode: u32, // offset: 108, size: 4
-	_padding: u32, // offset: 112, size: 4
+	heightfieldWorkgroupCount: u32, // offset: 112, size: 4
+	levelCount: u32, // offset: 116, size: 4
+	terrainMaterialOffset: u32, // offset: 120, size: 4
+	terrainMaterialCount: u32, // offset: 124, size: 4
+	worldRadius: f32, // offset: 128, size: 4
+	maxDistance: f32, // offset: 132, size: 4
+	debugRingRadius: f32, // offset: 136, size: 4
+	heightfieldTransitionWidth: f32, // offset: 140, size: 4
+	lodDistances0: [4]f32, // offset: 144, size: 16
+	lodDistances1: [4]f32, // offset: 160, size: 16
+	lodDistances2: [4]f32, // offset: 176, size: 16
+	virtualVoxelSizes0: [4]f32, // offset: 192, size: 16
+	virtualVoxelSizes1: [4]f32, // offset: 208, size: 16
+	virtualVoxelSizes2: [4]f32, // offset: 224, size: 16
+	verticalSteps0: [4]f32, // offset: 240, size: 16
+	verticalSteps1: [4]f32, // offset: 256, size: 16
+	verticalSteps2: [4]f32, // offset: 272, size: 16
+	lodGridDiameters0: [4]u32, // offset: 288, size: 16
+	lodGridDiameters1: [4]u32, // offset: 304, size: 16
+	lodGridDiameters2: [4]u32, // offset: 320, size: 16
+	outputSize: [2]f32, // offset: 336, size: 8
+	voxelTransitionWidth: f32, // offset: 344, size: 4
+	_padding: u32, // offset: 348, size: 4
 }
 
 VoxelChunk :: struct #align(16) {
@@ -52,13 +74,31 @@ MeshStats :: struct #align(16) {
 	culledWorkgroups: u32, // offset: 12, size: 4
 	generatedFaces: u32, // offset: 16, size: 4
 	generatedPrimitives: u32, // offset: 20, size: 4
-	_padding: [2]u32, // offset: 24, size: 8
+	heightfieldCells: u32, // offset: 24, size: 4
+	heightfieldPrimitives: u32, // offset: 28, size: 4
+}
+
+TerrainLevel :: struct #align(16) {
+	origin: [2]f32, // offset: 0, size: 8
+	spacing: f32, // offset: 8, size: 4
+	sampleCount: u32, // offset: 12, size: 4
+	sampleOffset: u32, // offset: 16, size: 4
+	extent: f32, // offset: 20, size: 4
+	lod: u32, // offset: 24, size: 4
+	_padding: u32, // offset: 28, size: 4
+}
+
+TerrainSample :: struct #align(16) {
+	height: f32, // offset: 0, size: 4
+	mountainInfluence: f32, // offset: 4, size: 4
+	material: u32, // offset: 8, size: 4
+	_padding: u32, // offset: 12, size: 4
 }
 
 // --- VOXEL_MESH Pipeline Constants ---
 VOXEL_MESH_MESH_MAIN_ENTRY_POINT :: "mesh_main"
 VOXEL_MESH_FRAGMENT_MAIN_ENTRY_POINT :: "fragment_main"
-VOXEL_MESH_UNIFORM_BUFFER_SIZE :: 128
+VOXEL_MESH_UNIFORM_BUFFER_SIZE :: 352
 VOXEL_MESH_BINDING_G_MESHSETTINGS :: 0
 VOXEL_MESH_BINDING_G_VOXELCHUNKS :: 1
 VOXEL_MESH_BINDING_G_VOXELBRICKS :: 2
@@ -66,5 +106,6 @@ VOXEL_MESH_BINDING_G_VOXELMATERIALS :: 3
 VOXEL_MESH_BINDING_G_VOXELCHUNKTABLE :: 4
 VOXEL_MESH_BINDING_G_MATERIALS :: 5
 VOXEL_MESH_BINDING_G_MESHBRICKS :: 6
-VOXEL_MESH_BINDING_G_HEIGHTFIELDDEPTH :: 7
-VOXEL_MESH_BINDING_G_MESHSTATS :: 8
+VOXEL_MESH_BINDING_G_MESHSTATS :: 7
+VOXEL_MESH_BINDING_G_TERRAINLEVELS :: 8
+VOXEL_MESH_BINDING_G_TERRAINSAMPLES :: 9

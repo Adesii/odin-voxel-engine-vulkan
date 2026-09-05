@@ -286,7 +286,7 @@ run_loop :: proc(game: ^Game) {
 			if game.render_config.terrain.backend == .MESH_SHADER {
 				mesh := game.terrain_render.mesh.stats
 				fmt.printf(
-					"Mesh terrain: candidates=%v visible=%v culled=%v workgroups=%v/%v faces=%v primitives=%v\n",
+					"Mesh terrain: candidates=%v visible=%v culled=%v workgroups=%v/%v voxel-faces=%v voxel-primitives=%v heightfield-cells=%v heightfield-primitives=%v\n",
 					mesh.candidate_bricks,
 					mesh.visible_bricks,
 					mesh.culled_bricks,
@@ -294,6 +294,8 @@ run_loop :: proc(game: ^Game) {
 					mesh.culled_workgroups,
 					mesh.generated_faces,
 					mesh.generated_primitives,
+					mesh.heightfield_cells,
+					mesh.heightfield_primitives,
 				)
 			} else {
 				traversal := game.terrain_render.stats
@@ -303,25 +305,20 @@ run_loop :: proc(game: ^Game) {
 					traversal.average_voxel_cells,
 					traversal.maximum_voxel_cells,
 				)
+				fmt.printf(
+					"Heightfield DDA: sampled=%v cells=%.1f max=%v hit-distance=%.1fm lod-cells=%v lod-hits=%v reps=%v/%v/%v misses=%v\n",
+					traversal.sampled_rays,
+					traversal.average_heightfield_cells,
+					traversal.maximum_heightfield_cells,
+					traversal.average_heightfield_hit_distance,
+					traversal.average_lod_cells,
+					traversal.lod_hits,
+					traversal.voxel_only_hits,
+					traversal.heightfield_only_hits,
+					traversal.blended_hits,
+					traversal.missed_rays,
+				)
 			}
-			traversal := game.terrain_render.stats
-			fmt.printf(
-				"Heightfield DDA: sampled=%v cells=%.1f max=%v hit-distance=%.1fm lod-cells=%.1f/%.1f/%.1f lod-hits=%v/%v/%v reps=%v/%v/%v misses=%v\n",
-				traversal.sampled_rays,
-				traversal.average_heightfield_cells,
-				traversal.maximum_heightfield_cells,
-				traversal.average_heightfield_hit_distance,
-				traversal.average_lod_cells[0],
-				traversal.average_lod_cells[1],
-				traversal.average_lod_cells[2],
-				traversal.lod_hits[0],
-				traversal.lod_hits[1],
-				traversal.lod_hits[2],
-				traversal.voxel_only_hits,
-				traversal.heightfield_only_hits,
-				traversal.blended_hits,
-				traversal.missed_rays,
-			)
 			elapsed_ms = 0
 			frame_count = 0
 		}
@@ -401,6 +398,14 @@ build_ui :: proc(game: ^Game, fps: f64) {
 		mu.text(
 			ctx,
 			fmt.tprintf(
+				"Heightfield cells / primitives: %v / %v",
+				mesh.heightfield_cells,
+				mesh.heightfield_primitives,
+			),
+		)
+		mu.text(
+			ctx,
+			fmt.tprintf(
 				"Mesh workgroups: %v (culled %v)",
 				mesh.mesh_workgroups,
 				mesh.culled_workgroups,
@@ -417,15 +422,17 @@ build_ui :: proc(game: ^Game, fps: f64) {
 			),
 		)
 	}
-	stats := game.terrain_render.stats
-	mu.text(
-		ctx,
-		fmt.tprintf(
-			"Heightfield cells avg / max: %.1f / %v",
-			stats.average_heightfield_cells,
-			stats.maximum_heightfield_cells,
-		),
-	)
+	if game.render_config.terrain.backend == .RAYMARCH {
+		stats := game.terrain_render.stats
+		mu.text(
+			ctx,
+			fmt.tprintf(
+				"Heightfield cells avg / max: %.1f / %v",
+				stats.average_heightfield_cells,
+				stats.maximum_heightfield_cells,
+			),
+		)
+	}
 	mu.text(ctx, "LMB mine / RMB place / F2 world plan / F6 shaders")
 	if game.last_mined_material != .AIR {
 		mu.text(ctx, fmt.tprintf("Last mined: %v", game.last_mined_material))
@@ -472,7 +479,11 @@ update_camera :: proc(game: ^Game, dt_ms: f32) {
 		return
 	}
 	aspect_ratio := f32(game.renderer.extent.width) / f32(game.renderer.extent.height)
-	view.update_matrices(&game.camera, aspect_ratio)
+	view.update_matrices(
+		&game.camera,
+		aspect_ratio,
+		far_plane = game.render_config.terrain.far_distance,
+	)
 }
 
 edit_crosshair_voxel :: proc(game: ^Game, place: bool) {
