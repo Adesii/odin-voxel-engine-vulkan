@@ -68,7 +68,14 @@ Config :: struct {
 	far_distance:                     f32,
 	virtual_voxel_size:               [heightfield.MAX_LOD_LEVELS]f32,
 	vertical_quantization:            [heightfield.MAX_LOD_LEVELS]f32,
-	heightfield_lod_transition_width: f32,
+	// Half width of the crossfade centred on each LOD boundary, as a fraction of
+	// that boundary's distance. Relative widths keep the fade the same number of
+	// pixels wide at every LOD, however coarse its cells are.
+	heightfield_lod_transition_ratio: f32,
+	// The mesh backend places one vertex every this many virtual cells. Triangles
+	// interpolate smoothly, so they need fewer vertices than the raymarcher needs
+	// cells; it must divide the cells per sample so vertices land on samples.
+	mesh_heightfield_cell_stride:     u32,
 	stats_sample_stride:              u32,
 }
 
@@ -79,7 +86,9 @@ valid_config :: proc(config: Config) -> bool {
 	   config.near_voxel_distance <= 0 ||
 	   config.voxel_transition_width < 0 ||
 	   config.voxel_transition_width >= config.near_voxel_distance ||
-	   config.heightfield_lod_transition_width < 0 {
+	   config.mesh_heightfield_cell_stride == 0 ||
+	   config.heightfield_lod_transition_ratio < 0 ||
+	   config.heightfield_lod_transition_ratio >= 0.5 {
 		return false
 	}
 	for index in 0 ..< int(config.heightfield_lod_count) {
@@ -937,7 +946,8 @@ update_frame_data :: proc(
 			sampleCount  = source.sample_count,
 			sampleOffset = source.sample_offset,
 			extent       = source.extent,
-			lod          = source.lod,
+			minHeight    = source.min_height,
+			maxHeight    = source.max_height,
 		}
 	}
 	uniforms := Frame_Uniforms {
@@ -947,6 +957,7 @@ update_frame_data :: proc(
 			position = input.camera.position,
 		},
 		settings = {
+			relativeInvViewProj = input.camera.relative_inv_view_proj,
 			worldRadius = input.world_radius,
 			maxDistance = input.config.far_distance,
 			modificationVoxelSize = input.overrides.voxel_size,
@@ -977,7 +988,7 @@ update_frame_data :: proc(
 			overrideBoundsMin = bounds_min,
 			statsSampleStride = input.config.stats_sample_stride,
 			overrideBoundsMax = bounds_max,
-			heightfieldTransitionWidth = input.config.heightfield_lod_transition_width,
+			heightfieldTransitionRatio = input.config.heightfield_lod_transition_ratio,
 			terrainBackend = u32(input.config.backend),
 		},
 	}

@@ -1,4 +1,5 @@
 {
+    "version": "1.1",
     "parameters": [
         {
             "name": "g_meshSettings",
@@ -8,7 +9,7 @@
                 "name": "MeshSettings",
                 "fields": [
                     {
-                        "name": "viewProj",
+                        "name": "viewProjRelative",
                         "type": {
                             "kind": "matrix",
                             "rowCount": 4,
@@ -16,7 +17,10 @@
                             "elementType": {
                                 "kind": "scalar",
                                 "scalarType": "float32"
-                            }
+                            },
+                            "sizes": [
+                                {"kind": "uniform", "value": 64, "alignment": 16}
+                            ]
                         },
                         "binding": {"kind": "uniform", "offset": 0, "size": 64, "elementStride": 0}
                     },
@@ -28,7 +32,10 @@
                             "elementType": {
                                 "kind": "scalar",
                                 "scalarType": "float32"
-                            }
+                            },
+                            "sizes": [
+                                {"kind": "uniform", "value": 12, "alignment": 16}
+                            ]
                         },
                         "binding": {"kind": "uniform", "offset": 64, "size": 12, "elementStride": 4}
                     },
@@ -36,7 +43,10 @@
                         "name": "voxelSize",
                         "type": {
                             "kind": "scalar",
-                            "scalarType": "float32"
+                            "scalarType": "float32",
+                            "sizes": [
+                                {"kind": "uniform", "value": 4, "alignment": 4}
+                            ]
                         },
                         "binding": {"kind": "uniform", "offset": 76, "size": 4, "elementStride": 0}
                     },
@@ -44,7 +54,10 @@
                         "name": "nearVoxelDistance",
                         "type": {
                             "kind": "scalar",
-                            "scalarType": "float32"
+                            "scalarType": "float32",
+                            "sizes": [
+                                {"kind": "uniform", "value": 4, "alignment": 4}
+                            ]
                         },
                         "binding": {"kind": "uniform", "offset": 80, "size": 4, "elementStride": 0}
                     },
@@ -52,7 +65,10 @@
                         "name": "meshBrickCount",
                         "type": {
                             "kind": "scalar",
-                            "scalarType": "uint32"
+                            "scalarType": "uint32",
+                            "sizes": [
+                                {"kind": "uniform", "value": 4, "alignment": 4}
+                            ]
                         },
                         "binding": {"kind": "uniform", "offset": 84, "size": 4, "elementStride": 0}
                     },
@@ -60,7 +76,10 @@
                         "name": "meshDispatchX",
                         "type": {
                             "kind": "scalar",
-                            "scalarType": "uint32"
+                            "scalarType": "uint32",
+                            "sizes": [
+                                {"kind": "uniform", "value": 4, "alignment": 4}
+                            ]
                         },
                         "binding": {"kind": "uniform", "offset": 88, "size": 4, "elementStride": 0}
                     },
@@ -68,7 +87,10 @@
                         "name": "chunkTableMask",
                         "type": {
                             "kind": "scalar",
-                            "scalarType": "uint32"
+                            "scalarType": "uint32",
+                            "sizes": [
+                                {"kind": "uniform", "value": 4, "alignment": 4}
+                            ]
                         },
                         "binding": {"kind": "uniform", "offset": 92, "size": 4, "elementStride": 0}
                     },
@@ -76,7 +98,10 @@
                         "name": "materialCount",
                         "type": {
                             "kind": "scalar",
-                            "scalarType": "uint32"
+                            "scalarType": "uint32",
+                            "sizes": [
+                                {"kind": "uniform", "value": 4, "alignment": 4}
+                            ]
                         },
                         "binding": {"kind": "uniform", "offset": 96, "size": 4, "elementStride": 0}
                     },
@@ -84,7 +109,10 @@
                         "name": "visualSeedLo",
                         "type": {
                             "kind": "scalar",
-                            "scalarType": "uint32"
+                            "scalarType": "uint32",
+                            "sizes": [
+                                {"kind": "uniform", "value": 4, "alignment": 4}
+                            ]
                         },
                         "binding": {"kind": "uniform", "offset": 100, "size": 4, "elementStride": 0}
                     },
@@ -92,7 +120,10 @@
                         "name": "visualSeedHi",
                         "type": {
                             "kind": "scalar",
-                            "scalarType": "uint32"
+                            "scalarType": "uint32",
+                            "sizes": [
+                                {"kind": "uniform", "value": 4, "alignment": 4}
+                            ]
                         },
                         "binding": {"kind": "uniform", "offset": 104, "size": 4, "elementStride": 0}
                     },
@@ -100,7 +131,10 @@
                         "name": "debugMode",
                         "type": {
                             "kind": "scalar",
-                            "scalarType": "uint32"
+                            "scalarType": "uint32",
+                            "sizes": [
+                                {"kind": "uniform", "value": 4, "alignment": 4}
+                            ]
                         },
                         "binding": {"kind": "uniform", "offset": 108, "size": 4, "elementStride": 0}
                     },
@@ -108,7 +142,10 @@
                         "name": "heightfieldWorkgroupCount",
                         "type": {
                             "kind": "scalar",
-                            "scalarType": "uint32"
+                            "scalarType": "uint32",
+                            "sizes": [
+                                {"kind": "uniform", "value": 4, "alignment": 4}
+                            ]
                         },
                         "binding": {"kind": "uniform", "offset": 112, "size": 4, "elementStride": 0}
                     },
@@ -116,7 +153,10 @@
                         "name": "levelCount",
                         "type": {
                             "kind": "scalar",
-                            "scalarType": "uint32"
+                            "scalarType": "uint32",
+                            "sizes": [
+                                {"kind": "uniform", "value": 4, "alignment": 4}
+                            ]
                         },
                         "binding": {"kind": "uniform", "offset": 116, "size": 4, "elementStride": 0}
                     },
@@ -124,7 +164,10 @@
                         "name": "terrainMaterialOffset",
                         "type": {
                             "kind": "scalar",
-                            "scalarType": "uint32"
+                            "scalarType": "uint32",
+                            "sizes": [
+                                {"kind": "uniform", "value": 4, "alignment": 4}
+                            ]
                         },
                         "binding": {"kind": "uniform", "offset": 120, "size": 4, "elementStride": 0}
                     },
@@ -132,7 +175,10 @@
                         "name": "terrainMaterialCount",
                         "type": {
                             "kind": "scalar",
-                            "scalarType": "uint32"
+                            "scalarType": "uint32",
+                            "sizes": [
+                                {"kind": "uniform", "value": 4, "alignment": 4}
+                            ]
                         },
                         "binding": {"kind": "uniform", "offset": 124, "size": 4, "elementStride": 0}
                     },
@@ -140,7 +186,10 @@
                         "name": "worldRadius",
                         "type": {
                             "kind": "scalar",
-                            "scalarType": "float32"
+                            "scalarType": "float32",
+                            "sizes": [
+                                {"kind": "uniform", "value": 4, "alignment": 4}
+                            ]
                         },
                         "binding": {"kind": "uniform", "offset": 128, "size": 4, "elementStride": 0}
                     },
@@ -148,7 +197,10 @@
                         "name": "maxDistance",
                         "type": {
                             "kind": "scalar",
-                            "scalarType": "float32"
+                            "scalarType": "float32",
+                            "sizes": [
+                                {"kind": "uniform", "value": 4, "alignment": 4}
+                            ]
                         },
                         "binding": {"kind": "uniform", "offset": 132, "size": 4, "elementStride": 0}
                     },
@@ -156,15 +208,21 @@
                         "name": "debugRingRadius",
                         "type": {
                             "kind": "scalar",
-                            "scalarType": "float32"
+                            "scalarType": "float32",
+                            "sizes": [
+                                {"kind": "uniform", "value": 4, "alignment": 4}
+                            ]
                         },
                         "binding": {"kind": "uniform", "offset": 136, "size": 4, "elementStride": 0}
                     },
                     {
-                        "name": "heightfieldTransitionWidth",
+                        "name": "heightfieldTransitionRatio",
                         "type": {
                             "kind": "scalar",
-                            "scalarType": "float32"
+                            "scalarType": "float32",
+                            "sizes": [
+                                {"kind": "uniform", "value": 4, "alignment": 4}
+                            ]
                         },
                         "binding": {"kind": "uniform", "offset": 140, "size": 4, "elementStride": 0}
                     },
@@ -176,7 +234,10 @@
                             "elementType": {
                                 "kind": "scalar",
                                 "scalarType": "float32"
-                            }
+                            },
+                            "sizes": [
+                                {"kind": "uniform", "value": 16, "alignment": 16}
+                            ]
                         },
                         "binding": {"kind": "uniform", "offset": 144, "size": 16, "elementStride": 4}
                     },
@@ -188,7 +249,10 @@
                             "elementType": {
                                 "kind": "scalar",
                                 "scalarType": "float32"
-                            }
+                            },
+                            "sizes": [
+                                {"kind": "uniform", "value": 16, "alignment": 16}
+                            ]
                         },
                         "binding": {"kind": "uniform", "offset": 160, "size": 16, "elementStride": 4}
                     },
@@ -200,7 +264,10 @@
                             "elementType": {
                                 "kind": "scalar",
                                 "scalarType": "float32"
-                            }
+                            },
+                            "sizes": [
+                                {"kind": "uniform", "value": 16, "alignment": 16}
+                            ]
                         },
                         "binding": {"kind": "uniform", "offset": 176, "size": 16, "elementStride": 4}
                     },
@@ -212,7 +279,10 @@
                             "elementType": {
                                 "kind": "scalar",
                                 "scalarType": "float32"
-                            }
+                            },
+                            "sizes": [
+                                {"kind": "uniform", "value": 16, "alignment": 16}
+                            ]
                         },
                         "binding": {"kind": "uniform", "offset": 192, "size": 16, "elementStride": 4}
                     },
@@ -224,7 +294,10 @@
                             "elementType": {
                                 "kind": "scalar",
                                 "scalarType": "float32"
-                            }
+                            },
+                            "sizes": [
+                                {"kind": "uniform", "value": 16, "alignment": 16}
+                            ]
                         },
                         "binding": {"kind": "uniform", "offset": 208, "size": 16, "elementStride": 4}
                     },
@@ -236,7 +309,10 @@
                             "elementType": {
                                 "kind": "scalar",
                                 "scalarType": "float32"
-                            }
+                            },
+                            "sizes": [
+                                {"kind": "uniform", "value": 16, "alignment": 16}
+                            ]
                         },
                         "binding": {"kind": "uniform", "offset": 224, "size": 16, "elementStride": 4}
                     },
@@ -248,7 +324,10 @@
                             "elementType": {
                                 "kind": "scalar",
                                 "scalarType": "float32"
-                            }
+                            },
+                            "sizes": [
+                                {"kind": "uniform", "value": 16, "alignment": 16}
+                            ]
                         },
                         "binding": {"kind": "uniform", "offset": 240, "size": 16, "elementStride": 4}
                     },
@@ -260,7 +339,10 @@
                             "elementType": {
                                 "kind": "scalar",
                                 "scalarType": "float32"
-                            }
+                            },
+                            "sizes": [
+                                {"kind": "uniform", "value": 16, "alignment": 16}
+                            ]
                         },
                         "binding": {"kind": "uniform", "offset": 256, "size": 16, "elementStride": 4}
                     },
@@ -272,7 +354,10 @@
                             "elementType": {
                                 "kind": "scalar",
                                 "scalarType": "float32"
-                            }
+                            },
+                            "sizes": [
+                                {"kind": "uniform", "value": 16, "alignment": 16}
+                            ]
                         },
                         "binding": {"kind": "uniform", "offset": 272, "size": 16, "elementStride": 4}
                     },
@@ -284,7 +369,10 @@
                             "elementType": {
                                 "kind": "scalar",
                                 "scalarType": "uint32"
-                            }
+                            },
+                            "sizes": [
+                                {"kind": "uniform", "value": 16, "alignment": 16}
+                            ]
                         },
                         "binding": {"kind": "uniform", "offset": 288, "size": 16, "elementStride": 4}
                     },
@@ -296,7 +384,10 @@
                             "elementType": {
                                 "kind": "scalar",
                                 "scalarType": "uint32"
-                            }
+                            },
+                            "sizes": [
+                                {"kind": "uniform", "value": 16, "alignment": 16}
+                            ]
                         },
                         "binding": {"kind": "uniform", "offset": 304, "size": 16, "elementStride": 4}
                     },
@@ -308,7 +399,10 @@
                             "elementType": {
                                 "kind": "scalar",
                                 "scalarType": "uint32"
-                            }
+                            },
+                            "sizes": [
+                                {"kind": "uniform", "value": 16, "alignment": 16}
+                            ]
                         },
                         "binding": {"kind": "uniform", "offset": 320, "size": 16, "elementStride": 4}
                     },
@@ -320,7 +414,10 @@
                             "elementType": {
                                 "kind": "scalar",
                                 "scalarType": "float32"
-                            }
+                            },
+                            "sizes": [
+                                {"kind": "uniform", "value": 8, "alignment": 8}
+                            ]
                         },
                         "binding": {"kind": "uniform", "offset": 336, "size": 8, "elementStride": 4}
                     },
@@ -328,18 +425,27 @@
                         "name": "voxelTransitionWidth",
                         "type": {
                             "kind": "scalar",
-                            "scalarType": "float32"
+                            "scalarType": "float32",
+                            "sizes": [
+                                {"kind": "uniform", "value": 4, "alignment": 4}
+                            ]
                         },
                         "binding": {"kind": "uniform", "offset": 344, "size": 4, "elementStride": 0}
                     },
                     {
-                        "name": "_padding",
+                        "name": "heightfieldCellStride",
                         "type": {
                             "kind": "scalar",
-                            "scalarType": "uint32"
+                            "scalarType": "uint32",
+                            "sizes": [
+                                {"kind": "uniform", "value": 4, "alignment": 4}
+                            ]
                         },
                         "binding": {"kind": "uniform", "offset": 348, "size": 4, "elementStride": 0}
                     }
+                ],
+                "sizes": [
+                    {"kind": "uniform", "value": 352, "alignment": 16}
                 ]
             }
         },
@@ -361,7 +467,10 @@
                                 "elementType": {
                                     "kind": "scalar",
                                     "scalarType": "int32"
-                                }
+                                },
+                                "sizes": [
+                                    {"kind": "uniform", "value": 12, "alignment": 16}
+                                ]
                             },
                             "binding": {"kind": "uniform", "offset": 0, "size": 12, "elementStride": 4}
                         },
@@ -369,12 +478,21 @@
                             "name": "brickOffset",
                             "type": {
                                 "kind": "scalar",
-                                "scalarType": "uint32"
+                                "scalarType": "uint32",
+                                "sizes": [
+                                    {"kind": "uniform", "value": 4, "alignment": 4}
+                                ]
                             },
                             "binding": {"kind": "uniform", "offset": 12, "size": 4, "elementStride": 0}
                         }
+                    ],
+                    "sizes": [
+                        {"kind": "uniform", "value": 16, "alignment": 16}
                     ]
-                }
+                },
+                "sizes": [
+                    {"kind": "descriptorTableSlot", "value": 1}
+                ]
             }
         },
         {
@@ -391,7 +509,10 @@
                             "name": "kind",
                             "type": {
                                 "kind": "scalar",
-                                "scalarType": "uint32"
+                                "scalarType": "uint32",
+                                "sizes": [
+                                    {"kind": "uniform", "value": 4, "alignment": 4}
+                                ]
                             },
                             "binding": {"kind": "uniform", "offset": 0, "size": 4, "elementStride": 0}
                         },
@@ -399,7 +520,10 @@
                             "name": "material",
                             "type": {
                                 "kind": "scalar",
-                                "scalarType": "uint32"
+                                "scalarType": "uint32",
+                                "sizes": [
+                                    {"kind": "uniform", "value": 4, "alignment": 4}
+                                ]
                             },
                             "binding": {"kind": "uniform", "offset": 4, "size": 4, "elementStride": 0}
                         },
@@ -407,7 +531,10 @@
                             "name": "voxelOffset",
                             "type": {
                                 "kind": "scalar",
-                                "scalarType": "uint32"
+                                "scalarType": "uint32",
+                                "sizes": [
+                                    {"kind": "uniform", "value": 4, "alignment": 4}
+                                ]
                             },
                             "binding": {"kind": "uniform", "offset": 8, "size": 4, "elementStride": 0}
                         },
@@ -415,12 +542,21 @@
                             "name": "_padding",
                             "type": {
                                 "kind": "scalar",
-                                "scalarType": "uint32"
+                                "scalarType": "uint32",
+                                "sizes": [
+                                    {"kind": "uniform", "value": 4, "alignment": 4}
+                                ]
                             },
                             "binding": {"kind": "uniform", "offset": 12, "size": 4, "elementStride": 0}
                         }
+                    ],
+                    "sizes": [
+                        {"kind": "uniform", "value": 16, "alignment": 4}
                     ]
-                }
+                },
+                "sizes": [
+                    {"kind": "descriptorTableSlot", "value": 1}
+                ]
             }
         },
         {
@@ -431,8 +567,14 @@
                 "baseShape": "structuredBuffer",
                 "resultType": {
                     "kind": "scalar",
-                    "scalarType": "uint32"
-                }
+                    "scalarType": "uint32",
+                    "sizes": [
+                        {"kind": "uniform", "value": 4, "alignment": 4}
+                    ]
+                },
+                "sizes": [
+                    {"kind": "descriptorTableSlot", "value": 1}
+                ]
             }
         },
         {
@@ -453,7 +595,10 @@
                                 "elementType": {
                                     "kind": "scalar",
                                     "scalarType": "int32"
-                                }
+                                },
+                                "sizes": [
+                                    {"kind": "uniform", "value": 12, "alignment": 16}
+                                ]
                             },
                             "binding": {"kind": "uniform", "offset": 0, "size": 12, "elementStride": 4}
                         },
@@ -461,12 +606,21 @@
                             "name": "chunkIndexPlusOne",
                             "type": {
                                 "kind": "scalar",
-                                "scalarType": "uint32"
+                                "scalarType": "uint32",
+                                "sizes": [
+                                    {"kind": "uniform", "value": 4, "alignment": 4}
+                                ]
                             },
                             "binding": {"kind": "uniform", "offset": 12, "size": 4, "elementStride": 0}
                         }
+                    ],
+                    "sizes": [
+                        {"kind": "uniform", "value": 16, "alignment": 16}
                     ]
-                }
+                },
+                "sizes": [
+                    {"kind": "descriptorTableSlot", "value": 1}
+                ]
             }
         },
         {
@@ -483,7 +637,10 @@
                             "name": "baseColor",
                             "type": {
                                 "kind": "scalar",
-                                "scalarType": "uint32"
+                                "scalarType": "uint32",
+                                "sizes": [
+                                    {"kind": "uniform", "value": 4, "alignment": 4}
+                                ]
                             },
                             "binding": {"kind": "uniform", "offset": 0, "size": 4, "elementStride": 0}
                         },
@@ -491,7 +648,10 @@
                             "name": "variationStrength",
                             "type": {
                                 "kind": "scalar",
-                                "scalarType": "float32"
+                                "scalarType": "float32",
+                                "sizes": [
+                                    {"kind": "uniform", "value": 4, "alignment": 4}
+                                ]
                             },
                             "binding": {"kind": "uniform", "offset": 4, "size": 4, "elementStride": 0}
                         },
@@ -499,7 +659,10 @@
                             "name": "flags",
                             "type": {
                                 "kind": "scalar",
-                                "scalarType": "uint32"
+                                "scalarType": "uint32",
+                                "sizes": [
+                                    {"kind": "uniform", "value": 4, "alignment": 4}
+                                ]
                             },
                             "binding": {"kind": "uniform", "offset": 8, "size": 4, "elementStride": 0}
                         },
@@ -507,12 +670,21 @@
                             "name": "_padding",
                             "type": {
                                 "kind": "scalar",
-                                "scalarType": "uint32"
+                                "scalarType": "uint32",
+                                "sizes": [
+                                    {"kind": "uniform", "value": 4, "alignment": 4}
+                                ]
                             },
                             "binding": {"kind": "uniform", "offset": 12, "size": 4, "elementStride": 0}
                         }
+                    ],
+                    "sizes": [
+                        {"kind": "uniform", "value": 16, "alignment": 4}
                     ]
-                }
+                },
+                "sizes": [
+                    {"kind": "descriptorTableSlot", "value": 1}
+                ]
             }
         },
         {
@@ -533,7 +705,10 @@
                                 "elementType": {
                                     "kind": "scalar",
                                     "scalarType": "int32"
-                                }
+                                },
+                                "sizes": [
+                                    {"kind": "uniform", "value": 12, "alignment": 16}
+                                ]
                             },
                             "binding": {"kind": "uniform", "offset": 0, "size": 12, "elementStride": 4}
                         },
@@ -541,12 +716,21 @@
                             "name": "_padding",
                             "type": {
                                 "kind": "scalar",
-                                "scalarType": "uint32"
+                                "scalarType": "uint32",
+                                "sizes": [
+                                    {"kind": "uniform", "value": 4, "alignment": 4}
+                                ]
                             },
                             "binding": {"kind": "uniform", "offset": 12, "size": 4, "elementStride": 0}
                         }
+                    ],
+                    "sizes": [
+                        {"kind": "uniform", "value": 16, "alignment": 16}
                     ]
-                }
+                },
+                "sizes": [
+                    {"kind": "descriptorTableSlot", "value": 1}
+                ]
             }
         },
         {
@@ -564,7 +748,10 @@
                             "name": "visibleBricks",
                             "type": {
                                 "kind": "scalar",
-                                "scalarType": "uint32"
+                                "scalarType": "uint32",
+                                "sizes": [
+                                    {"kind": "uniform", "value": 4, "alignment": 4}
+                                ]
                             },
                             "binding": {"kind": "uniform", "offset": 0, "size": 4, "elementStride": 0}
                         },
@@ -572,7 +759,10 @@
                             "name": "culledBricks",
                             "type": {
                                 "kind": "scalar",
-                                "scalarType": "uint32"
+                                "scalarType": "uint32",
+                                "sizes": [
+                                    {"kind": "uniform", "value": 4, "alignment": 4}
+                                ]
                             },
                             "binding": {"kind": "uniform", "offset": 4, "size": 4, "elementStride": 0}
                         },
@@ -580,7 +770,10 @@
                             "name": "meshWorkgroups",
                             "type": {
                                 "kind": "scalar",
-                                "scalarType": "uint32"
+                                "scalarType": "uint32",
+                                "sizes": [
+                                    {"kind": "uniform", "value": 4, "alignment": 4}
+                                ]
                             },
                             "binding": {"kind": "uniform", "offset": 8, "size": 4, "elementStride": 0}
                         },
@@ -588,7 +781,10 @@
                             "name": "culledWorkgroups",
                             "type": {
                                 "kind": "scalar",
-                                "scalarType": "uint32"
+                                "scalarType": "uint32",
+                                "sizes": [
+                                    {"kind": "uniform", "value": 4, "alignment": 4}
+                                ]
                             },
                             "binding": {"kind": "uniform", "offset": 12, "size": 4, "elementStride": 0}
                         },
@@ -596,7 +792,10 @@
                             "name": "generatedFaces",
                             "type": {
                                 "kind": "scalar",
-                                "scalarType": "uint32"
+                                "scalarType": "uint32",
+                                "sizes": [
+                                    {"kind": "uniform", "value": 4, "alignment": 4}
+                                ]
                             },
                             "binding": {"kind": "uniform", "offset": 16, "size": 4, "elementStride": 0}
                         },
@@ -604,7 +803,10 @@
                             "name": "generatedPrimitives",
                             "type": {
                                 "kind": "scalar",
-                                "scalarType": "uint32"
+                                "scalarType": "uint32",
+                                "sizes": [
+                                    {"kind": "uniform", "value": 4, "alignment": 4}
+                                ]
                             },
                             "binding": {"kind": "uniform", "offset": 20, "size": 4, "elementStride": 0}
                         },
@@ -612,7 +814,10 @@
                             "name": "heightfieldCells",
                             "type": {
                                 "kind": "scalar",
-                                "scalarType": "uint32"
+                                "scalarType": "uint32",
+                                "sizes": [
+                                    {"kind": "uniform", "value": 4, "alignment": 4}
+                                ]
                             },
                             "binding": {"kind": "uniform", "offset": 24, "size": 4, "elementStride": 0}
                         },
@@ -620,12 +825,21 @@
                             "name": "heightfieldPrimitives",
                             "type": {
                                 "kind": "scalar",
-                                "scalarType": "uint32"
+                                "scalarType": "uint32",
+                                "sizes": [
+                                    {"kind": "uniform", "value": 4, "alignment": 4}
+                                ]
                             },
                             "binding": {"kind": "uniform", "offset": 28, "size": 4, "elementStride": 0}
                         }
+                    ],
+                    "sizes": [
+                        {"kind": "uniform", "value": 32, "alignment": 4}
                     ]
-                }
+                },
+                "sizes": [
+                    {"kind": "descriptorTableSlot", "value": 1}
+                ]
             }
         },
         {
@@ -646,7 +860,10 @@
                                 "elementType": {
                                     "kind": "scalar",
                                     "scalarType": "float32"
-                                }
+                                },
+                                "sizes": [
+                                    {"kind": "uniform", "value": 8, "alignment": 8}
+                                ]
                             },
                             "binding": {"kind": "uniform", "offset": 0, "size": 8, "elementStride": 4}
                         },
@@ -654,7 +871,10 @@
                             "name": "spacing",
                             "type": {
                                 "kind": "scalar",
-                                "scalarType": "float32"
+                                "scalarType": "float32",
+                                "sizes": [
+                                    {"kind": "uniform", "value": 4, "alignment": 4}
+                                ]
                             },
                             "binding": {"kind": "uniform", "offset": 8, "size": 4, "elementStride": 0}
                         },
@@ -662,7 +882,10 @@
                             "name": "sampleCount",
                             "type": {
                                 "kind": "scalar",
-                                "scalarType": "uint32"
+                                "scalarType": "uint32",
+                                "sizes": [
+                                    {"kind": "uniform", "value": 4, "alignment": 4}
+                                ]
                             },
                             "binding": {"kind": "uniform", "offset": 12, "size": 4, "elementStride": 0}
                         },
@@ -670,7 +893,10 @@
                             "name": "sampleOffset",
                             "type": {
                                 "kind": "scalar",
-                                "scalarType": "uint32"
+                                "scalarType": "uint32",
+                                "sizes": [
+                                    {"kind": "uniform", "value": 4, "alignment": 4}
+                                ]
                             },
                             "binding": {"kind": "uniform", "offset": 16, "size": 4, "elementStride": 0}
                         },
@@ -678,28 +904,43 @@
                             "name": "extent",
                             "type": {
                                 "kind": "scalar",
-                                "scalarType": "float32"
+                                "scalarType": "float32",
+                                "sizes": [
+                                    {"kind": "uniform", "value": 4, "alignment": 4}
+                                ]
                             },
                             "binding": {"kind": "uniform", "offset": 20, "size": 4, "elementStride": 0}
                         },
                         {
-                            "name": "lod",
+                            "name": "minHeight",
                             "type": {
                                 "kind": "scalar",
-                                "scalarType": "uint32"
+                                "scalarType": "float32",
+                                "sizes": [
+                                    {"kind": "uniform", "value": 4, "alignment": 4}
+                                ]
                             },
                             "binding": {"kind": "uniform", "offset": 24, "size": 4, "elementStride": 0}
                         },
                         {
-                            "name": "_padding",
+                            "name": "maxHeight",
                             "type": {
                                 "kind": "scalar",
-                                "scalarType": "uint32"
+                                "scalarType": "float32",
+                                "sizes": [
+                                    {"kind": "uniform", "value": 4, "alignment": 4}
+                                ]
                             },
                             "binding": {"kind": "uniform", "offset": 28, "size": 4, "elementStride": 0}
                         }
+                    ],
+                    "sizes": [
+                        {"kind": "uniform", "value": 32, "alignment": 8}
                     ]
-                }
+                },
+                "sizes": [
+                    {"kind": "descriptorTableSlot", "value": 1}
+                ]
             }
         },
         {
@@ -716,7 +957,10 @@
                             "name": "height",
                             "type": {
                                 "kind": "scalar",
-                                "scalarType": "float32"
+                                "scalarType": "float32",
+                                "sizes": [
+                                    {"kind": "uniform", "value": 4, "alignment": 4}
+                                ]
                             },
                             "binding": {"kind": "uniform", "offset": 0, "size": 4, "elementStride": 0}
                         },
@@ -724,7 +968,10 @@
                             "name": "mountainInfluence",
                             "type": {
                                 "kind": "scalar",
-                                "scalarType": "float32"
+                                "scalarType": "float32",
+                                "sizes": [
+                                    {"kind": "uniform", "value": 4, "alignment": 4}
+                                ]
                             },
                             "binding": {"kind": "uniform", "offset": 4, "size": 4, "elementStride": 0}
                         },
@@ -732,7 +979,10 @@
                             "name": "material",
                             "type": {
                                 "kind": "scalar",
-                                "scalarType": "uint32"
+                                "scalarType": "uint32",
+                                "sizes": [
+                                    {"kind": "uniform", "value": 4, "alignment": 4}
+                                ]
                             },
                             "binding": {"kind": "uniform", "offset": 8, "size": 4, "elementStride": 0}
                         },
@@ -740,19 +990,1091 @@
                             "name": "_padding",
                             "type": {
                                 "kind": "scalar",
-                                "scalarType": "uint32"
+                                "scalarType": "uint32",
+                                "sizes": [
+                                    {"kind": "uniform", "value": 4, "alignment": 4}
+                                ]
                             },
                             "binding": {"kind": "uniform", "offset": 12, "size": 4, "elementStride": 0}
                         }
+                    ],
+                    "sizes": [
+                        {"kind": "uniform", "value": 16, "alignment": 4}
                     ]
-                }
+                },
+                "sizes": [
+                    {"kind": "descriptorTableSlot", "value": 1}
+                ]
             }
         }
     ],
+    "globalScope": {
+        "kind": "constantBuffer",
+        "binding": {"kind": "descriptorTableSlot", "index": 0},
+        "parameters": [
+            {
+                "name": "g_meshSettings",
+                "binding": {"kind": "uniform", "offset": 0, "size": 352, "elementStride": 0},
+                "type": {
+                    "kind": "struct",
+                    "name": "MeshSettings",
+                    "fields": [
+                        {
+                            "name": "viewProjRelative",
+                            "type": {
+                                "kind": "matrix",
+                                "rowCount": 4,
+                                "columnCount": 4,
+                                "elementType": {
+                                    "kind": "scalar",
+                                    "scalarType": "float32"
+                                },
+                                "sizes": [
+                                    {"kind": "uniform", "value": 64, "alignment": 16}
+                                ]
+                            },
+                            "binding": {"kind": "uniform", "offset": 0, "size": 64, "elementStride": 0}
+                        },
+                        {
+                            "name": "cameraPosition",
+                            "type": {
+                                "kind": "vector",
+                                "elementCount": 3,
+                                "elementType": {
+                                    "kind": "scalar",
+                                    "scalarType": "float32"
+                                },
+                                "sizes": [
+                                    {"kind": "uniform", "value": 12, "alignment": 16}
+                                ]
+                            },
+                            "binding": {"kind": "uniform", "offset": 64, "size": 12, "elementStride": 4}
+                        },
+                        {
+                            "name": "voxelSize",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "float32",
+                                "sizes": [
+                                    {"kind": "uniform", "value": 4, "alignment": 4}
+                                ]
+                            },
+                            "binding": {"kind": "uniform", "offset": 76, "size": 4, "elementStride": 0}
+                        },
+                        {
+                            "name": "nearVoxelDistance",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "float32",
+                                "sizes": [
+                                    {"kind": "uniform", "value": 4, "alignment": 4}
+                                ]
+                            },
+                            "binding": {"kind": "uniform", "offset": 80, "size": 4, "elementStride": 0}
+                        },
+                        {
+                            "name": "meshBrickCount",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "uint32",
+                                "sizes": [
+                                    {"kind": "uniform", "value": 4, "alignment": 4}
+                                ]
+                            },
+                            "binding": {"kind": "uniform", "offset": 84, "size": 4, "elementStride": 0}
+                        },
+                        {
+                            "name": "meshDispatchX",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "uint32",
+                                "sizes": [
+                                    {"kind": "uniform", "value": 4, "alignment": 4}
+                                ]
+                            },
+                            "binding": {"kind": "uniform", "offset": 88, "size": 4, "elementStride": 0}
+                        },
+                        {
+                            "name": "chunkTableMask",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "uint32",
+                                "sizes": [
+                                    {"kind": "uniform", "value": 4, "alignment": 4}
+                                ]
+                            },
+                            "binding": {"kind": "uniform", "offset": 92, "size": 4, "elementStride": 0}
+                        },
+                        {
+                            "name": "materialCount",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "uint32",
+                                "sizes": [
+                                    {"kind": "uniform", "value": 4, "alignment": 4}
+                                ]
+                            },
+                            "binding": {"kind": "uniform", "offset": 96, "size": 4, "elementStride": 0}
+                        },
+                        {
+                            "name": "visualSeedLo",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "uint32",
+                                "sizes": [
+                                    {"kind": "uniform", "value": 4, "alignment": 4}
+                                ]
+                            },
+                            "binding": {"kind": "uniform", "offset": 100, "size": 4, "elementStride": 0}
+                        },
+                        {
+                            "name": "visualSeedHi",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "uint32",
+                                "sizes": [
+                                    {"kind": "uniform", "value": 4, "alignment": 4}
+                                ]
+                            },
+                            "binding": {"kind": "uniform", "offset": 104, "size": 4, "elementStride": 0}
+                        },
+                        {
+                            "name": "debugMode",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "uint32",
+                                "sizes": [
+                                    {"kind": "uniform", "value": 4, "alignment": 4}
+                                ]
+                            },
+                            "binding": {"kind": "uniform", "offset": 108, "size": 4, "elementStride": 0}
+                        },
+                        {
+                            "name": "heightfieldWorkgroupCount",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "uint32",
+                                "sizes": [
+                                    {"kind": "uniform", "value": 4, "alignment": 4}
+                                ]
+                            },
+                            "binding": {"kind": "uniform", "offset": 112, "size": 4, "elementStride": 0}
+                        },
+                        {
+                            "name": "levelCount",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "uint32",
+                                "sizes": [
+                                    {"kind": "uniform", "value": 4, "alignment": 4}
+                                ]
+                            },
+                            "binding": {"kind": "uniform", "offset": 116, "size": 4, "elementStride": 0}
+                        },
+                        {
+                            "name": "terrainMaterialOffset",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "uint32",
+                                "sizes": [
+                                    {"kind": "uniform", "value": 4, "alignment": 4}
+                                ]
+                            },
+                            "binding": {"kind": "uniform", "offset": 120, "size": 4, "elementStride": 0}
+                        },
+                        {
+                            "name": "terrainMaterialCount",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "uint32",
+                                "sizes": [
+                                    {"kind": "uniform", "value": 4, "alignment": 4}
+                                ]
+                            },
+                            "binding": {"kind": "uniform", "offset": 124, "size": 4, "elementStride": 0}
+                        },
+                        {
+                            "name": "worldRadius",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "float32",
+                                "sizes": [
+                                    {"kind": "uniform", "value": 4, "alignment": 4}
+                                ]
+                            },
+                            "binding": {"kind": "uniform", "offset": 128, "size": 4, "elementStride": 0}
+                        },
+                        {
+                            "name": "maxDistance",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "float32",
+                                "sizes": [
+                                    {"kind": "uniform", "value": 4, "alignment": 4}
+                                ]
+                            },
+                            "binding": {"kind": "uniform", "offset": 132, "size": 4, "elementStride": 0}
+                        },
+                        {
+                            "name": "debugRingRadius",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "float32",
+                                "sizes": [
+                                    {"kind": "uniform", "value": 4, "alignment": 4}
+                                ]
+                            },
+                            "binding": {"kind": "uniform", "offset": 136, "size": 4, "elementStride": 0}
+                        },
+                        {
+                            "name": "heightfieldTransitionRatio",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "float32",
+                                "sizes": [
+                                    {"kind": "uniform", "value": 4, "alignment": 4}
+                                ]
+                            },
+                            "binding": {"kind": "uniform", "offset": 140, "size": 4, "elementStride": 0}
+                        },
+                        {
+                            "name": "lodDistances0",
+                            "type": {
+                                "kind": "vector",
+                                "elementCount": 4,
+                                "elementType": {
+                                    "kind": "scalar",
+                                    "scalarType": "float32"
+                                },
+                                "sizes": [
+                                    {"kind": "uniform", "value": 16, "alignment": 16}
+                                ]
+                            },
+                            "binding": {"kind": "uniform", "offset": 144, "size": 16, "elementStride": 4}
+                        },
+                        {
+                            "name": "lodDistances1",
+                            "type": {
+                                "kind": "vector",
+                                "elementCount": 4,
+                                "elementType": {
+                                    "kind": "scalar",
+                                    "scalarType": "float32"
+                                },
+                                "sizes": [
+                                    {"kind": "uniform", "value": 16, "alignment": 16}
+                                ]
+                            },
+                            "binding": {"kind": "uniform", "offset": 160, "size": 16, "elementStride": 4}
+                        },
+                        {
+                            "name": "lodDistances2",
+                            "type": {
+                                "kind": "vector",
+                                "elementCount": 4,
+                                "elementType": {
+                                    "kind": "scalar",
+                                    "scalarType": "float32"
+                                },
+                                "sizes": [
+                                    {"kind": "uniform", "value": 16, "alignment": 16}
+                                ]
+                            },
+                            "binding": {"kind": "uniform", "offset": 176, "size": 16, "elementStride": 4}
+                        },
+                        {
+                            "name": "virtualVoxelSizes0",
+                            "type": {
+                                "kind": "vector",
+                                "elementCount": 4,
+                                "elementType": {
+                                    "kind": "scalar",
+                                    "scalarType": "float32"
+                                },
+                                "sizes": [
+                                    {"kind": "uniform", "value": 16, "alignment": 16}
+                                ]
+                            },
+                            "binding": {"kind": "uniform", "offset": 192, "size": 16, "elementStride": 4}
+                        },
+                        {
+                            "name": "virtualVoxelSizes1",
+                            "type": {
+                                "kind": "vector",
+                                "elementCount": 4,
+                                "elementType": {
+                                    "kind": "scalar",
+                                    "scalarType": "float32"
+                                },
+                                "sizes": [
+                                    {"kind": "uniform", "value": 16, "alignment": 16}
+                                ]
+                            },
+                            "binding": {"kind": "uniform", "offset": 208, "size": 16, "elementStride": 4}
+                        },
+                        {
+                            "name": "virtualVoxelSizes2",
+                            "type": {
+                                "kind": "vector",
+                                "elementCount": 4,
+                                "elementType": {
+                                    "kind": "scalar",
+                                    "scalarType": "float32"
+                                },
+                                "sizes": [
+                                    {"kind": "uniform", "value": 16, "alignment": 16}
+                                ]
+                            },
+                            "binding": {"kind": "uniform", "offset": 224, "size": 16, "elementStride": 4}
+                        },
+                        {
+                            "name": "verticalSteps0",
+                            "type": {
+                                "kind": "vector",
+                                "elementCount": 4,
+                                "elementType": {
+                                    "kind": "scalar",
+                                    "scalarType": "float32"
+                                },
+                                "sizes": [
+                                    {"kind": "uniform", "value": 16, "alignment": 16}
+                                ]
+                            },
+                            "binding": {"kind": "uniform", "offset": 240, "size": 16, "elementStride": 4}
+                        },
+                        {
+                            "name": "verticalSteps1",
+                            "type": {
+                                "kind": "vector",
+                                "elementCount": 4,
+                                "elementType": {
+                                    "kind": "scalar",
+                                    "scalarType": "float32"
+                                },
+                                "sizes": [
+                                    {"kind": "uniform", "value": 16, "alignment": 16}
+                                ]
+                            },
+                            "binding": {"kind": "uniform", "offset": 256, "size": 16, "elementStride": 4}
+                        },
+                        {
+                            "name": "verticalSteps2",
+                            "type": {
+                                "kind": "vector",
+                                "elementCount": 4,
+                                "elementType": {
+                                    "kind": "scalar",
+                                    "scalarType": "float32"
+                                },
+                                "sizes": [
+                                    {"kind": "uniform", "value": 16, "alignment": 16}
+                                ]
+                            },
+                            "binding": {"kind": "uniform", "offset": 272, "size": 16, "elementStride": 4}
+                        },
+                        {
+                            "name": "lodGridDiameters0",
+                            "type": {
+                                "kind": "vector",
+                                "elementCount": 4,
+                                "elementType": {
+                                    "kind": "scalar",
+                                    "scalarType": "uint32"
+                                },
+                                "sizes": [
+                                    {"kind": "uniform", "value": 16, "alignment": 16}
+                                ]
+                            },
+                            "binding": {"kind": "uniform", "offset": 288, "size": 16, "elementStride": 4}
+                        },
+                        {
+                            "name": "lodGridDiameters1",
+                            "type": {
+                                "kind": "vector",
+                                "elementCount": 4,
+                                "elementType": {
+                                    "kind": "scalar",
+                                    "scalarType": "uint32"
+                                },
+                                "sizes": [
+                                    {"kind": "uniform", "value": 16, "alignment": 16}
+                                ]
+                            },
+                            "binding": {"kind": "uniform", "offset": 304, "size": 16, "elementStride": 4}
+                        },
+                        {
+                            "name": "lodGridDiameters2",
+                            "type": {
+                                "kind": "vector",
+                                "elementCount": 4,
+                                "elementType": {
+                                    "kind": "scalar",
+                                    "scalarType": "uint32"
+                                },
+                                "sizes": [
+                                    {"kind": "uniform", "value": 16, "alignment": 16}
+                                ]
+                            },
+                            "binding": {"kind": "uniform", "offset": 320, "size": 16, "elementStride": 4}
+                        },
+                        {
+                            "name": "outputSize",
+                            "type": {
+                                "kind": "vector",
+                                "elementCount": 2,
+                                "elementType": {
+                                    "kind": "scalar",
+                                    "scalarType": "float32"
+                                },
+                                "sizes": [
+                                    {"kind": "uniform", "value": 8, "alignment": 8}
+                                ]
+                            },
+                            "binding": {"kind": "uniform", "offset": 336, "size": 8, "elementStride": 4}
+                        },
+                        {
+                            "name": "voxelTransitionWidth",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "float32",
+                                "sizes": [
+                                    {"kind": "uniform", "value": 4, "alignment": 4}
+                                ]
+                            },
+                            "binding": {"kind": "uniform", "offset": 344, "size": 4, "elementStride": 0}
+                        },
+                        {
+                            "name": "heightfieldCellStride",
+                            "type": {
+                                "kind": "scalar",
+                                "scalarType": "uint32",
+                                "sizes": [
+                                    {"kind": "uniform", "value": 4, "alignment": 4}
+                                ]
+                            },
+                            "binding": {"kind": "uniform", "offset": 348, "size": 4, "elementStride": 0}
+                        }
+                    ],
+                    "sizes": [
+                        {"kind": "uniform", "value": 352, "alignment": 16}
+                    ]
+                }
+            },
+            {
+                "name": "g_voxelChunks",
+                "binding": {"kind": "descriptorTableSlot", "index": 1},
+                "type": {
+                    "kind": "resource",
+                    "baseShape": "structuredBuffer",
+                    "resultType": {
+                        "kind": "struct",
+                        "name": "VoxelChunk",
+                        "fields": [
+                            {
+                                "name": "coord",
+                                "type": {
+                                    "kind": "vector",
+                                    "elementCount": 3,
+                                    "elementType": {
+                                        "kind": "scalar",
+                                        "scalarType": "int32"
+                                    },
+                                    "sizes": [
+                                        {"kind": "uniform", "value": 12, "alignment": 16}
+                                    ]
+                                },
+                                "binding": {"kind": "uniform", "offset": 0, "size": 12, "elementStride": 4}
+                            },
+                            {
+                                "name": "brickOffset",
+                                "type": {
+                                    "kind": "scalar",
+                                    "scalarType": "uint32",
+                                    "sizes": [
+                                        {"kind": "uniform", "value": 4, "alignment": 4}
+                                    ]
+                                },
+                                "binding": {"kind": "uniform", "offset": 12, "size": 4, "elementStride": 0}
+                            }
+                        ],
+                        "sizes": [
+                            {"kind": "uniform", "value": 16, "alignment": 16}
+                        ]
+                    },
+                    "sizes": [
+                        {"kind": "descriptorTableSlot", "value": 1}
+                    ]
+                }
+            },
+            {
+                "name": "g_voxelBricks",
+                "binding": {"kind": "descriptorTableSlot", "index": 2},
+                "type": {
+                    "kind": "resource",
+                    "baseShape": "structuredBuffer",
+                    "resultType": {
+                        "kind": "struct",
+                        "name": "VoxelBrick",
+                        "fields": [
+                            {
+                                "name": "kind",
+                                "type": {
+                                    "kind": "scalar",
+                                    "scalarType": "uint32",
+                                    "sizes": [
+                                        {"kind": "uniform", "value": 4, "alignment": 4}
+                                    ]
+                                },
+                                "binding": {"kind": "uniform", "offset": 0, "size": 4, "elementStride": 0}
+                            },
+                            {
+                                "name": "material",
+                                "type": {
+                                    "kind": "scalar",
+                                    "scalarType": "uint32",
+                                    "sizes": [
+                                        {"kind": "uniform", "value": 4, "alignment": 4}
+                                    ]
+                                },
+                                "binding": {"kind": "uniform", "offset": 4, "size": 4, "elementStride": 0}
+                            },
+                            {
+                                "name": "voxelOffset",
+                                "type": {
+                                    "kind": "scalar",
+                                    "scalarType": "uint32",
+                                    "sizes": [
+                                        {"kind": "uniform", "value": 4, "alignment": 4}
+                                    ]
+                                },
+                                "binding": {"kind": "uniform", "offset": 8, "size": 4, "elementStride": 0}
+                            },
+                            {
+                                "name": "_padding",
+                                "type": {
+                                    "kind": "scalar",
+                                    "scalarType": "uint32",
+                                    "sizes": [
+                                        {"kind": "uniform", "value": 4, "alignment": 4}
+                                    ]
+                                },
+                                "binding": {"kind": "uniform", "offset": 12, "size": 4, "elementStride": 0}
+                            }
+                        ],
+                        "sizes": [
+                            {"kind": "uniform", "value": 16, "alignment": 4}
+                        ]
+                    },
+                    "sizes": [
+                        {"kind": "descriptorTableSlot", "value": 1}
+                    ]
+                }
+            },
+            {
+                "name": "g_voxelMaterials",
+                "binding": {"kind": "descriptorTableSlot", "index": 3},
+                "type": {
+                    "kind": "resource",
+                    "baseShape": "structuredBuffer",
+                    "resultType": {
+                        "kind": "scalar",
+                        "scalarType": "uint32",
+                        "sizes": [
+                            {"kind": "uniform", "value": 4, "alignment": 4}
+                        ]
+                    },
+                    "sizes": [
+                        {"kind": "descriptorTableSlot", "value": 1}
+                    ]
+                }
+            },
+            {
+                "name": "g_voxelChunkTable",
+                "binding": {"kind": "descriptorTableSlot", "index": 4},
+                "type": {
+                    "kind": "resource",
+                    "baseShape": "structuredBuffer",
+                    "resultType": {
+                        "kind": "struct",
+                        "name": "VoxelChunkSlot",
+                        "fields": [
+                            {
+                                "name": "coord",
+                                "type": {
+                                    "kind": "vector",
+                                    "elementCount": 3,
+                                    "elementType": {
+                                        "kind": "scalar",
+                                        "scalarType": "int32"
+                                    },
+                                    "sizes": [
+                                        {"kind": "uniform", "value": 12, "alignment": 16}
+                                    ]
+                                },
+                                "binding": {"kind": "uniform", "offset": 0, "size": 12, "elementStride": 4}
+                            },
+                            {
+                                "name": "chunkIndexPlusOne",
+                                "type": {
+                                    "kind": "scalar",
+                                    "scalarType": "uint32",
+                                    "sizes": [
+                                        {"kind": "uniform", "value": 4, "alignment": 4}
+                                    ]
+                                },
+                                "binding": {"kind": "uniform", "offset": 12, "size": 4, "elementStride": 0}
+                            }
+                        ],
+                        "sizes": [
+                            {"kind": "uniform", "value": 16, "alignment": 16}
+                        ]
+                    },
+                    "sizes": [
+                        {"kind": "descriptorTableSlot", "value": 1}
+                    ]
+                }
+            },
+            {
+                "name": "g_materials",
+                "binding": {"kind": "descriptorTableSlot", "index": 5},
+                "type": {
+                    "kind": "resource",
+                    "baseShape": "structuredBuffer",
+                    "resultType": {
+                        "kind": "struct",
+                        "name": "MaterialRenderInfo",
+                        "fields": [
+                            {
+                                "name": "baseColor",
+                                "type": {
+                                    "kind": "scalar",
+                                    "scalarType": "uint32",
+                                    "sizes": [
+                                        {"kind": "uniform", "value": 4, "alignment": 4}
+                                    ]
+                                },
+                                "binding": {"kind": "uniform", "offset": 0, "size": 4, "elementStride": 0}
+                            },
+                            {
+                                "name": "variationStrength",
+                                "type": {
+                                    "kind": "scalar",
+                                    "scalarType": "float32",
+                                    "sizes": [
+                                        {"kind": "uniform", "value": 4, "alignment": 4}
+                                    ]
+                                },
+                                "binding": {"kind": "uniform", "offset": 4, "size": 4, "elementStride": 0}
+                            },
+                            {
+                                "name": "flags",
+                                "type": {
+                                    "kind": "scalar",
+                                    "scalarType": "uint32",
+                                    "sizes": [
+                                        {"kind": "uniform", "value": 4, "alignment": 4}
+                                    ]
+                                },
+                                "binding": {"kind": "uniform", "offset": 8, "size": 4, "elementStride": 0}
+                            },
+                            {
+                                "name": "_padding",
+                                "type": {
+                                    "kind": "scalar",
+                                    "scalarType": "uint32",
+                                    "sizes": [
+                                        {"kind": "uniform", "value": 4, "alignment": 4}
+                                    ]
+                                },
+                                "binding": {"kind": "uniform", "offset": 12, "size": 4, "elementStride": 0}
+                            }
+                        ],
+                        "sizes": [
+                            {"kind": "uniform", "value": 16, "alignment": 4}
+                        ]
+                    },
+                    "sizes": [
+                        {"kind": "descriptorTableSlot", "value": 1}
+                    ]
+                }
+            },
+            {
+                "name": "g_meshBricks",
+                "binding": {"kind": "descriptorTableSlot", "index": 6},
+                "type": {
+                    "kind": "resource",
+                    "baseShape": "structuredBuffer",
+                    "resultType": {
+                        "kind": "struct",
+                        "name": "MeshBrick",
+                        "fields": [
+                            {
+                                "name": "voxelMin",
+                                "type": {
+                                    "kind": "vector",
+                                    "elementCount": 3,
+                                    "elementType": {
+                                        "kind": "scalar",
+                                        "scalarType": "int32"
+                                    },
+                                    "sizes": [
+                                        {"kind": "uniform", "value": 12, "alignment": 16}
+                                    ]
+                                },
+                                "binding": {"kind": "uniform", "offset": 0, "size": 12, "elementStride": 4}
+                            },
+                            {
+                                "name": "_padding",
+                                "type": {
+                                    "kind": "scalar",
+                                    "scalarType": "uint32",
+                                    "sizes": [
+                                        {"kind": "uniform", "value": 4, "alignment": 4}
+                                    ]
+                                },
+                                "binding": {"kind": "uniform", "offset": 12, "size": 4, "elementStride": 0}
+                            }
+                        ],
+                        "sizes": [
+                            {"kind": "uniform", "value": 16, "alignment": 16}
+                        ]
+                    },
+                    "sizes": [
+                        {"kind": "descriptorTableSlot", "value": 1}
+                    ]
+                }
+            },
+            {
+                "name": "g_meshStats",
+                "binding": {"kind": "descriptorTableSlot", "index": 7},
+                "type": {
+                    "kind": "resource",
+                    "baseShape": "structuredBuffer",
+                    "access": "readWrite",
+                    "resultType": {
+                        "kind": "struct",
+                        "name": "MeshStats",
+                        "fields": [
+                            {
+                                "name": "visibleBricks",
+                                "type": {
+                                    "kind": "scalar",
+                                    "scalarType": "uint32",
+                                    "sizes": [
+                                        {"kind": "uniform", "value": 4, "alignment": 4}
+                                    ]
+                                },
+                                "binding": {"kind": "uniform", "offset": 0, "size": 4, "elementStride": 0}
+                            },
+                            {
+                                "name": "culledBricks",
+                                "type": {
+                                    "kind": "scalar",
+                                    "scalarType": "uint32",
+                                    "sizes": [
+                                        {"kind": "uniform", "value": 4, "alignment": 4}
+                                    ]
+                                },
+                                "binding": {"kind": "uniform", "offset": 4, "size": 4, "elementStride": 0}
+                            },
+                            {
+                                "name": "meshWorkgroups",
+                                "type": {
+                                    "kind": "scalar",
+                                    "scalarType": "uint32",
+                                    "sizes": [
+                                        {"kind": "uniform", "value": 4, "alignment": 4}
+                                    ]
+                                },
+                                "binding": {"kind": "uniform", "offset": 8, "size": 4, "elementStride": 0}
+                            },
+                            {
+                                "name": "culledWorkgroups",
+                                "type": {
+                                    "kind": "scalar",
+                                    "scalarType": "uint32",
+                                    "sizes": [
+                                        {"kind": "uniform", "value": 4, "alignment": 4}
+                                    ]
+                                },
+                                "binding": {"kind": "uniform", "offset": 12, "size": 4, "elementStride": 0}
+                            },
+                            {
+                                "name": "generatedFaces",
+                                "type": {
+                                    "kind": "scalar",
+                                    "scalarType": "uint32",
+                                    "sizes": [
+                                        {"kind": "uniform", "value": 4, "alignment": 4}
+                                    ]
+                                },
+                                "binding": {"kind": "uniform", "offset": 16, "size": 4, "elementStride": 0}
+                            },
+                            {
+                                "name": "generatedPrimitives",
+                                "type": {
+                                    "kind": "scalar",
+                                    "scalarType": "uint32",
+                                    "sizes": [
+                                        {"kind": "uniform", "value": 4, "alignment": 4}
+                                    ]
+                                },
+                                "binding": {"kind": "uniform", "offset": 20, "size": 4, "elementStride": 0}
+                            },
+                            {
+                                "name": "heightfieldCells",
+                                "type": {
+                                    "kind": "scalar",
+                                    "scalarType": "uint32",
+                                    "sizes": [
+                                        {"kind": "uniform", "value": 4, "alignment": 4}
+                                    ]
+                                },
+                                "binding": {"kind": "uniform", "offset": 24, "size": 4, "elementStride": 0}
+                            },
+                            {
+                                "name": "heightfieldPrimitives",
+                                "type": {
+                                    "kind": "scalar",
+                                    "scalarType": "uint32",
+                                    "sizes": [
+                                        {"kind": "uniform", "value": 4, "alignment": 4}
+                                    ]
+                                },
+                                "binding": {"kind": "uniform", "offset": 28, "size": 4, "elementStride": 0}
+                            }
+                        ],
+                        "sizes": [
+                            {"kind": "uniform", "value": 32, "alignment": 4}
+                        ]
+                    },
+                    "sizes": [
+                        {"kind": "descriptorTableSlot", "value": 1}
+                    ]
+                }
+            },
+            {
+                "name": "g_terrainLevels",
+                "binding": {"kind": "descriptorTableSlot", "index": 8},
+                "type": {
+                    "kind": "resource",
+                    "baseShape": "structuredBuffer",
+                    "resultType": {
+                        "kind": "struct",
+                        "name": "TerrainLevel",
+                        "fields": [
+                            {
+                                "name": "origin",
+                                "type": {
+                                    "kind": "vector",
+                                    "elementCount": 2,
+                                    "elementType": {
+                                        "kind": "scalar",
+                                        "scalarType": "float32"
+                                    },
+                                    "sizes": [
+                                        {"kind": "uniform", "value": 8, "alignment": 8}
+                                    ]
+                                },
+                                "binding": {"kind": "uniform", "offset": 0, "size": 8, "elementStride": 4}
+                            },
+                            {
+                                "name": "spacing",
+                                "type": {
+                                    "kind": "scalar",
+                                    "scalarType": "float32",
+                                    "sizes": [
+                                        {"kind": "uniform", "value": 4, "alignment": 4}
+                                    ]
+                                },
+                                "binding": {"kind": "uniform", "offset": 8, "size": 4, "elementStride": 0}
+                            },
+                            {
+                                "name": "sampleCount",
+                                "type": {
+                                    "kind": "scalar",
+                                    "scalarType": "uint32",
+                                    "sizes": [
+                                        {"kind": "uniform", "value": 4, "alignment": 4}
+                                    ]
+                                },
+                                "binding": {"kind": "uniform", "offset": 12, "size": 4, "elementStride": 0}
+                            },
+                            {
+                                "name": "sampleOffset",
+                                "type": {
+                                    "kind": "scalar",
+                                    "scalarType": "uint32",
+                                    "sizes": [
+                                        {"kind": "uniform", "value": 4, "alignment": 4}
+                                    ]
+                                },
+                                "binding": {"kind": "uniform", "offset": 16, "size": 4, "elementStride": 0}
+                            },
+                            {
+                                "name": "extent",
+                                "type": {
+                                    "kind": "scalar",
+                                    "scalarType": "float32",
+                                    "sizes": [
+                                        {"kind": "uniform", "value": 4, "alignment": 4}
+                                    ]
+                                },
+                                "binding": {"kind": "uniform", "offset": 20, "size": 4, "elementStride": 0}
+                            },
+                            {
+                                "name": "minHeight",
+                                "type": {
+                                    "kind": "scalar",
+                                    "scalarType": "float32",
+                                    "sizes": [
+                                        {"kind": "uniform", "value": 4, "alignment": 4}
+                                    ]
+                                },
+                                "binding": {"kind": "uniform", "offset": 24, "size": 4, "elementStride": 0}
+                            },
+                            {
+                                "name": "maxHeight",
+                                "type": {
+                                    "kind": "scalar",
+                                    "scalarType": "float32",
+                                    "sizes": [
+                                        {"kind": "uniform", "value": 4, "alignment": 4}
+                                    ]
+                                },
+                                "binding": {"kind": "uniform", "offset": 28, "size": 4, "elementStride": 0}
+                            }
+                        ],
+                        "sizes": [
+                            {"kind": "uniform", "value": 32, "alignment": 8}
+                        ]
+                    },
+                    "sizes": [
+                        {"kind": "descriptorTableSlot", "value": 1}
+                    ]
+                }
+            },
+            {
+                "name": "g_terrainSamples",
+                "binding": {"kind": "descriptorTableSlot", "index": 9},
+                "type": {
+                    "kind": "resource",
+                    "baseShape": "structuredBuffer",
+                    "resultType": {
+                        "kind": "struct",
+                        "name": "TerrainSample",
+                        "fields": [
+                            {
+                                "name": "height",
+                                "type": {
+                                    "kind": "scalar",
+                                    "scalarType": "float32",
+                                    "sizes": [
+                                        {"kind": "uniform", "value": 4, "alignment": 4}
+                                    ]
+                                },
+                                "binding": {"kind": "uniform", "offset": 0, "size": 4, "elementStride": 0}
+                            },
+                            {
+                                "name": "mountainInfluence",
+                                "type": {
+                                    "kind": "scalar",
+                                    "scalarType": "float32",
+                                    "sizes": [
+                                        {"kind": "uniform", "value": 4, "alignment": 4}
+                                    ]
+                                },
+                                "binding": {"kind": "uniform", "offset": 4, "size": 4, "elementStride": 0}
+                            },
+                            {
+                                "name": "material",
+                                "type": {
+                                    "kind": "scalar",
+                                    "scalarType": "uint32",
+                                    "sizes": [
+                                        {"kind": "uniform", "value": 4, "alignment": 4}
+                                    ]
+                                },
+                                "binding": {"kind": "uniform", "offset": 8, "size": 4, "elementStride": 0}
+                            },
+                            {
+                                "name": "_padding",
+                                "type": {
+                                    "kind": "scalar",
+                                    "scalarType": "uint32",
+                                    "sizes": [
+                                        {"kind": "uniform", "value": 4, "alignment": 4}
+                                    ]
+                                },
+                                "binding": {"kind": "uniform", "offset": 12, "size": 4, "elementStride": 0}
+                            }
+                        ],
+                        "sizes": [
+                            {"kind": "uniform", "value": 16, "alignment": 4}
+                        ]
+                    },
+                    "sizes": [
+                        {"kind": "descriptorTableSlot", "value": 1}
+                    ]
+                }
+            }
+        ]
+    },
     "entryPoints": [
         {
             "name": "mesh_main",
             "stage": "mesh",
+            "scope": {
+                "kind": "none",
+                "parameters": [
+                    {
+                        "name": "groupID",
+                        "semanticName": "SV_GROUPID",
+                        "type": {
+                            "kind": "vector",
+                            "elementCount": 3,
+                            "elementType": {
+                                "kind": "scalar",
+                                "scalarType": "uint32"
+                            },
+                            "sizes": [
+
+                            ]
+                        }
+                    },
+                    {
+                        "name": "threadID",
+                        "semanticName": "SV_GROUPTHREADID",
+                        "type": {
+                            "kind": "scalar",
+                            "scalarType": "uint32",
+                            "sizes": [
+
+                            ]
+                        }
+                    },
+                    {
+                        "name": "vertices",
+                        "stage": "mesh",
+                        "binding": {"kind": "varyingOutput", "index": 0, "count": 13},
+                        "type": {
+                            "kind": "MeshOutput",
+                            "sizes": [
+                                {"kind": "varyingOutput", "value": 13}
+                            ]
+                        }
+                    },
+                    {
+                        "name": "triangles",
+                        "type": {
+                            "kind": "MeshOutput",
+                            "sizes": [
+
+                            ]
+                        }
+                    }
+                ]
+            },
             "parameters": [
                 {
                     "name": "groupID",
@@ -763,7 +2085,10 @@
                         "elementType": {
                             "kind": "scalar",
                             "scalarType": "uint32"
-                        }
+                        },
+                        "sizes": [
+
+                        ]
                     }
                 },
                 {
@@ -771,24 +2096,34 @@
                     "semanticName": "SV_GROUPTHREADID",
                     "type": {
                         "kind": "scalar",
-                        "scalarType": "uint32"
+                        "scalarType": "uint32",
+                        "sizes": [
+
+                        ]
                     }
                 },
                 {
                     "name": "vertices",
                     "stage": "mesh",
-                    "binding": {"kind": "varyingOutput", "index": 0, "count": 11},
+                    "binding": {"kind": "varyingOutput", "index": 0, "count": 13},
                     "type": {
-                        "kind": "None"
+                        "kind": "MeshOutput",
+                        "sizes": [
+                            {"kind": "varyingOutput", "value": 13}
+                        ]
                     }
                 },
                 {
                     "name": "triangles",
                     "type": {
-                        "kind": "None"
+                        "kind": "MeshOutput",
+                        "sizes": [
+
+                        ]
                     }
                 }
             ],
+            "threadGroupSize": [32, 1, 1],
             "bindings": [
                 {
                     "name": "g_meshSettings",
@@ -835,11 +2170,246 @@
         {
             "name": "fragment_main",
             "stage": "fragment",
+            "scope": {
+                "kind": "none",
+                "parameters": [
+                    {
+                        "name": "input",
+                        "stage": "fragment",
+                        "binding": {"kind": "varyingInput", "index": 0, "count": 13},
+                        "type": {
+                            "kind": "struct",
+                            "name": "MeshVertex",
+                            "fields": [
+                                {
+                                    "name": "position",
+                                    "type": {
+                                        "kind": "vector",
+                                        "elementCount": 4,
+                                        "elementType": {
+                                            "kind": "scalar",
+                                            "scalarType": "float32"
+                                        },
+                                        "sizes": [
+
+                                        ]
+                                    },
+                                    "semanticName": "SV_POSITION"
+                                },
+                                {
+                                    "name": "worldPosition",
+                                    "type": {
+                                        "kind": "vector",
+                                        "elementCount": 3,
+                                        "elementType": {
+                                            "kind": "scalar",
+                                            "scalarType": "float32"
+                                        },
+                                        "sizes": [
+                                            {"kind": "varyingInput", "value": 1}
+                                        ]
+                                    },
+                                    "stage": "fragment",
+                                    "binding": {"kind": "varyingInput", "index": 0},
+                                    "semanticName": "TEXCOORD"
+                                },
+                                {
+                                    "name": "material",
+                                    "type": {
+                                        "kind": "scalar",
+                                        "scalarType": "uint32",
+                                        "sizes": [
+                                            {"kind": "varyingInput", "value": 1}
+                                        ]
+                                    },
+                                    "stage": "fragment",
+                                    "binding": {"kind": "varyingInput", "index": 1},
+                                    "semanticName": "TEXCOORD",
+                                    "semanticIndex": 1
+                                },
+                                {
+                                    "name": "voxel",
+                                    "type": {
+                                        "kind": "vector",
+                                        "elementCount": 3,
+                                        "elementType": {
+                                            "kind": "scalar",
+                                            "scalarType": "int32"
+                                        },
+                                        "sizes": [
+                                            {"kind": "varyingInput", "value": 1}
+                                        ]
+                                    },
+                                    "stage": "fragment",
+                                    "binding": {"kind": "varyingInput", "index": 2},
+                                    "semanticName": "TEXCOORD",
+                                    "semanticIndex": 2
+                                },
+                                {
+                                    "name": "normal",
+                                    "type": {
+                                        "kind": "vector",
+                                        "elementCount": 3,
+                                        "elementType": {
+                                            "kind": "scalar",
+                                            "scalarType": "float32"
+                                        },
+                                        "sizes": [
+                                            {"kind": "varyingInput", "value": 1}
+                                        ]
+                                    },
+                                    "stage": "fragment",
+                                    "binding": {"kind": "varyingInput", "index": 3},
+                                    "semanticName": "TEXCOORD",
+                                    "semanticIndex": 3
+                                },
+                                {
+                                    "name": "representation",
+                                    "type": {
+                                        "kind": "scalar",
+                                        "scalarType": "uint32",
+                                        "sizes": [
+                                            {"kind": "varyingInput", "value": 1}
+                                        ]
+                                    },
+                                    "stage": "fragment",
+                                    "binding": {"kind": "varyingInput", "index": 4},
+                                    "semanticName": "TEXCOORD",
+                                    "semanticIndex": 4
+                                },
+                                {
+                                    "name": "lod",
+                                    "type": {
+                                        "kind": "scalar",
+                                        "scalarType": "uint32",
+                                        "sizes": [
+                                            {"kind": "varyingInput", "value": 1}
+                                        ]
+                                    },
+                                    "stage": "fragment",
+                                    "binding": {"kind": "varyingInput", "index": 5},
+                                    "semanticName": "TEXCOORD",
+                                    "semanticIndex": 5
+                                },
+                                {
+                                    "name": "heightfieldCell",
+                                    "type": {
+                                        "kind": "vector",
+                                        "elementCount": 2,
+                                        "elementType": {
+                                            "kind": "scalar",
+                                            "scalarType": "int32"
+                                        },
+                                        "sizes": [
+                                            {"kind": "varyingInput", "value": 1}
+                                        ]
+                                    },
+                                    "stage": "fragment",
+                                    "binding": {"kind": "varyingInput", "index": 6},
+                                    "semanticName": "TEXCOORD",
+                                    "semanticIndex": 6
+                                },
+                                {
+                                    "name": "cellSize",
+                                    "type": {
+                                        "kind": "scalar",
+                                        "scalarType": "float32",
+                                        "sizes": [
+                                            {"kind": "varyingInput", "value": 1}
+                                        ]
+                                    },
+                                    "stage": "fragment",
+                                    "binding": {"kind": "varyingInput", "index": 7},
+                                    "semanticName": "TEXCOORD",
+                                    "semanticIndex": 7
+                                },
+                                {
+                                    "name": "sourceHeight",
+                                    "type": {
+                                        "kind": "scalar",
+                                        "scalarType": "float32",
+                                        "sizes": [
+                                            {"kind": "varyingInput", "value": 1}
+                                        ]
+                                    },
+                                    "stage": "fragment",
+                                    "binding": {"kind": "varyingInput", "index": 8},
+                                    "semanticName": "TEXCOORD",
+                                    "semanticIndex": 8
+                                },
+                                {
+                                    "name": "quantizedHeight",
+                                    "type": {
+                                        "kind": "scalar",
+                                        "scalarType": "float32",
+                                        "sizes": [
+                                            {"kind": "varyingInput", "value": 1}
+                                        ]
+                                    },
+                                    "stage": "fragment",
+                                    "binding": {"kind": "varyingInput", "index": 9},
+                                    "semanticName": "TEXCOORD",
+                                    "semanticIndex": 9
+                                },
+                                {
+                                    "name": "mountainInfluence",
+                                    "type": {
+                                        "kind": "scalar",
+                                        "scalarType": "float32",
+                                        "sizes": [
+                                            {"kind": "varyingInput", "value": 1}
+                                        ]
+                                    },
+                                    "stage": "fragment",
+                                    "binding": {"kind": "varyingInput", "index": 10},
+                                    "semanticName": "TEXCOORD",
+                                    "semanticIndex": 10
+                                },
+                                {
+                                    "name": "viewOffset",
+                                    "type": {
+                                        "kind": "vector",
+                                        "elementCount": 3,
+                                        "elementType": {
+                                            "kind": "scalar",
+                                            "scalarType": "float32"
+                                        },
+                                        "sizes": [
+                                            {"kind": "varyingInput", "value": 1}
+                                        ]
+                                    },
+                                    "stage": "fragment",
+                                    "binding": {"kind": "varyingInput", "index": 11},
+                                    "semanticName": "TEXCOORD",
+                                    "semanticIndex": 11
+                                },
+                                {
+                                    "name": "voxelBacked",
+                                    "type": {
+                                        "kind": "scalar",
+                                        "scalarType": "uint32",
+                                        "sizes": [
+                                            {"kind": "varyingInput", "value": 1}
+                                        ]
+                                    },
+                                    "stage": "fragment",
+                                    "binding": {"kind": "varyingInput", "index": 12},
+                                    "semanticName": "TEXCOORD",
+                                    "semanticIndex": 12
+                                }
+                            ],
+                            "sizes": [
+                                {"kind": "varyingInput", "value": 13}
+                            ]
+                        }
+                    }
+                ]
+            },
             "parameters": [
                 {
                     "name": "input",
                     "stage": "fragment",
-                    "binding": {"kind": "varyingInput", "index": 0, "count": 11},
+                    "binding": {"kind": "varyingInput", "index": 0, "count": 13},
                     "type": {
                         "kind": "struct",
                         "name": "MeshVertex",
@@ -852,7 +2422,10 @@
                                     "elementType": {
                                         "kind": "scalar",
                                         "scalarType": "float32"
-                                    }
+                                    },
+                                    "sizes": [
+
+                                    ]
                                 },
                                 "semanticName": "SV_POSITION"
                             },
@@ -864,7 +2437,10 @@
                                     "elementType": {
                                         "kind": "scalar",
                                         "scalarType": "float32"
-                                    }
+                                    },
+                                    "sizes": [
+                                        {"kind": "varyingInput", "value": 1}
+                                    ]
                                 },
                                 "stage": "fragment",
                                 "binding": {"kind": "varyingInput", "index": 0},
@@ -874,7 +2450,10 @@
                                 "name": "material",
                                 "type": {
                                     "kind": "scalar",
-                                    "scalarType": "uint32"
+                                    "scalarType": "uint32",
+                                    "sizes": [
+                                        {"kind": "varyingInput", "value": 1}
+                                    ]
                                 },
                                 "stage": "fragment",
                                 "binding": {"kind": "varyingInput", "index": 1},
@@ -889,7 +2468,10 @@
                                     "elementType": {
                                         "kind": "scalar",
                                         "scalarType": "int32"
-                                    }
+                                    },
+                                    "sizes": [
+                                        {"kind": "varyingInput", "value": 1}
+                                    ]
                                 },
                                 "stage": "fragment",
                                 "binding": {"kind": "varyingInput", "index": 2},
@@ -904,7 +2486,10 @@
                                     "elementType": {
                                         "kind": "scalar",
                                         "scalarType": "float32"
-                                    }
+                                    },
+                                    "sizes": [
+                                        {"kind": "varyingInput", "value": 1}
+                                    ]
                                 },
                                 "stage": "fragment",
                                 "binding": {"kind": "varyingInput", "index": 3},
@@ -915,7 +2500,10 @@
                                 "name": "representation",
                                 "type": {
                                     "kind": "scalar",
-                                    "scalarType": "uint32"
+                                    "scalarType": "uint32",
+                                    "sizes": [
+                                        {"kind": "varyingInput", "value": 1}
+                                    ]
                                 },
                                 "stage": "fragment",
                                 "binding": {"kind": "varyingInput", "index": 4},
@@ -926,7 +2514,10 @@
                                 "name": "lod",
                                 "type": {
                                     "kind": "scalar",
-                                    "scalarType": "uint32"
+                                    "scalarType": "uint32",
+                                    "sizes": [
+                                        {"kind": "varyingInput", "value": 1}
+                                    ]
                                 },
                                 "stage": "fragment",
                                 "binding": {"kind": "varyingInput", "index": 5},
@@ -941,7 +2532,10 @@
                                     "elementType": {
                                         "kind": "scalar",
                                         "scalarType": "int32"
-                                    }
+                                    },
+                                    "sizes": [
+                                        {"kind": "varyingInput", "value": 1}
+                                    ]
                                 },
                                 "stage": "fragment",
                                 "binding": {"kind": "varyingInput", "index": 6},
@@ -952,7 +2546,10 @@
                                 "name": "cellSize",
                                 "type": {
                                     "kind": "scalar",
-                                    "scalarType": "float32"
+                                    "scalarType": "float32",
+                                    "sizes": [
+                                        {"kind": "varyingInput", "value": 1}
+                                    ]
                                 },
                                 "stage": "fragment",
                                 "binding": {"kind": "varyingInput", "index": 7},
@@ -963,7 +2560,10 @@
                                 "name": "sourceHeight",
                                 "type": {
                                     "kind": "scalar",
-                                    "scalarType": "float32"
+                                    "scalarType": "float32",
+                                    "sizes": [
+                                        {"kind": "varyingInput", "value": 1}
+                                    ]
                                 },
                                 "stage": "fragment",
                                 "binding": {"kind": "varyingInput", "index": 8},
@@ -974,7 +2574,10 @@
                                 "name": "quantizedHeight",
                                 "type": {
                                     "kind": "scalar",
-                                    "scalarType": "float32"
+                                    "scalarType": "float32",
+                                    "sizes": [
+                                        {"kind": "varyingInput", "value": 1}
+                                    ]
                                 },
                                 "stage": "fragment",
                                 "binding": {"kind": "varyingInput", "index": 9},
@@ -985,13 +2588,51 @@
                                 "name": "mountainInfluence",
                                 "type": {
                                     "kind": "scalar",
-                                    "scalarType": "float32"
+                                    "scalarType": "float32",
+                                    "sizes": [
+                                        {"kind": "varyingInput", "value": 1}
+                                    ]
                                 },
                                 "stage": "fragment",
                                 "binding": {"kind": "varyingInput", "index": 10},
                                 "semanticName": "TEXCOORD",
                                 "semanticIndex": 10
+                            },
+                            {
+                                "name": "viewOffset",
+                                "type": {
+                                    "kind": "vector",
+                                    "elementCount": 3,
+                                    "elementType": {
+                                        "kind": "scalar",
+                                        "scalarType": "float32"
+                                    },
+                                    "sizes": [
+                                        {"kind": "varyingInput", "value": 1}
+                                    ]
+                                },
+                                "stage": "fragment",
+                                "binding": {"kind": "varyingInput", "index": 11},
+                                "semanticName": "TEXCOORD",
+                                "semanticIndex": 11
+                            },
+                            {
+                                "name": "voxelBacked",
+                                "type": {
+                                    "kind": "scalar",
+                                    "scalarType": "uint32",
+                                    "sizes": [
+                                        {"kind": "varyingInput", "value": 1}
+                                    ]
+                                },
+                                "stage": "fragment",
+                                "binding": {"kind": "varyingInput", "index": 12},
+                                "semanticName": "TEXCOORD",
+                                "semanticIndex": 12
                             }
+                        ],
+                        "sizes": [
+                            {"kind": "varyingInput", "value": 13}
                         ]
                     }
                 }
@@ -1006,7 +2647,10 @@
                     "elementType": {
                         "kind": "scalar",
                         "scalarType": "float32"
-                    }
+                    },
+                    "sizes": [
+                        {"kind": "varyingOutput", "value": 1}
+                    ]
                 }
             },
             "bindings": [

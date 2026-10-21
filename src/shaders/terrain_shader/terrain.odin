@@ -8,41 +8,42 @@ CameraUniforms :: struct #align(16) {
 }
 
 TerrainSettings :: struct #align(16) {
-	worldRadius: f32, // offset: 0, size: 4
-	maxDistance: f32, // offset: 4, size: 4
-	modificationVoxelSize: f32, // offset: 8, size: 4
-	levelCount: u32, // offset: 12, size: 4
-	overrideTableMask: u32, // offset: 16, size: 4
-	debugMode: u32, // offset: 20, size: 4
-	debugRingRadius: f32, // offset: 24, size: 4
-	voxelSize: f32, // offset: 28, size: 4
-	voxelRenderRadius: f32, // offset: 32, size: 4
-	voxelTransitionWidth: f32, // offset: 36, size: 4
-	chunkWorldSize: f32, // offset: 40, size: 4
-	chunkTableMask: u32, // offset: 44, size: 4
-	chunkCount: u32, // offset: 48, size: 4
-	materialCount: u32, // offset: 52, size: 4
-	terrainMaterialOffset: u32, // offset: 56, size: 4
-	terrainMaterialCount: u32, // offset: 60, size: 4
-	visualSeedLo: u32, // offset: 64, size: 4
-	visualSeedHi: u32, // offset: 68, size: 4
-	_pad_80: [8]u8,
-	lodDistances0: [4]f32, // offset: 80, size: 16
-	lodDistances1: [4]f32, // offset: 96, size: 16
-	lodDistances2: [4]f32, // offset: 112, size: 16
-	virtualVoxelSizes0: [4]f32, // offset: 128, size: 16
-	virtualVoxelSizes1: [4]f32, // offset: 144, size: 16
-	virtualVoxelSizes2: [4]f32, // offset: 160, size: 16
-	verticalSteps0: [4]f32, // offset: 176, size: 16
-	verticalSteps1: [4]f32, // offset: 192, size: 16
-	verticalSteps2: [4]f32, // offset: 208, size: 16
-	overrideBoundsMin: [3]f32, // offset: 224, size: 12
-	statsSampleStride: u32, // offset: 236, size: 4
-	overrideBoundsMax: [3]f32, // offset: 240, size: 12
-	heightfieldTransitionWidth: f32, // offset: 252, size: 4
-	terrainBackend: u32, // offset: 256, size: 4
-	_pad_272: [12]u8,
-	_padding: [3]u32, // offset: 272, size: 12
+	relativeInvViewProj: matrix[4,4]f32, // offset: 0, size: 64
+	worldRadius: f32, // offset: 64, size: 4
+	maxDistance: f32, // offset: 68, size: 4
+	modificationVoxelSize: f32, // offset: 72, size: 4
+	levelCount: u32, // offset: 76, size: 4
+	overrideTableMask: u32, // offset: 80, size: 4
+	debugMode: u32, // offset: 84, size: 4
+	debugRingRadius: f32, // offset: 88, size: 4
+	voxelSize: f32, // offset: 92, size: 4
+	voxelRenderRadius: f32, // offset: 96, size: 4
+	voxelTransitionWidth: f32, // offset: 100, size: 4
+	chunkWorldSize: f32, // offset: 104, size: 4
+	chunkTableMask: u32, // offset: 108, size: 4
+	chunkCount: u32, // offset: 112, size: 4
+	materialCount: u32, // offset: 116, size: 4
+	terrainMaterialOffset: u32, // offset: 120, size: 4
+	terrainMaterialCount: u32, // offset: 124, size: 4
+	visualSeedLo: u32, // offset: 128, size: 4
+	visualSeedHi: u32, // offset: 132, size: 4
+	_pad_144: [8]u8,
+	lodDistances0: [4]f32, // offset: 144, size: 16
+	lodDistances1: [4]f32, // offset: 160, size: 16
+	lodDistances2: [4]f32, // offset: 176, size: 16
+	virtualVoxelSizes0: [4]f32, // offset: 192, size: 16
+	virtualVoxelSizes1: [4]f32, // offset: 208, size: 16
+	virtualVoxelSizes2: [4]f32, // offset: 224, size: 16
+	verticalSteps0: [4]f32, // offset: 240, size: 16
+	verticalSteps1: [4]f32, // offset: 256, size: 16
+	verticalSteps2: [4]f32, // offset: 272, size: 16
+	overrideBoundsMin: [3]f32, // offset: 288, size: 12
+	statsSampleStride: u32, // offset: 300, size: 4
+	overrideBoundsMax: [3]f32, // offset: 304, size: 12
+	heightfieldTransitionRatio: f32, // offset: 316, size: 4
+	terrainBackend: u32, // offset: 320, size: 4
+	_pad_336: [12]u8,
+	_padding: [3]u32, // offset: 336, size: 12
 }
 
 TerrainLevel :: struct #align(16) {
@@ -51,8 +52,8 @@ TerrainLevel :: struct #align(16) {
 	sampleCount: u32, // offset: 12, size: 4
 	sampleOffset: u32, // offset: 16, size: 4
 	extent: f32, // offset: 20, size: 4
-	lod: u32, // offset: 24, size: 4
-	_padding: u32, // offset: 28, size: 4
+	minHeight: f32, // offset: 24, size: 4
+	maxHeight: f32, // offset: 28, size: 4
 }
 
 TerrainSample :: struct #align(16) {
@@ -141,7 +142,7 @@ TERRAIN_MAIN_ENTRY_POINT :: "main"
 TERRAIN_THREAD_X :: 8
 TERRAIN_THREAD_Y :: 8
 TERRAIN_THREAD_Z :: 1
-TERRAIN_UNIFORM_BUFFER_SIZE :: 432
+TERRAIN_UNIFORM_BUFFER_SIZE :: 496
 TERRAIN_BINDING_G_CAMERA :: 0
 TERRAIN_BINDING_G_SETTINGS :: 0
 TERRAIN_BINDING_G_LEVELS :: 1

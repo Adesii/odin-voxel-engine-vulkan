@@ -13,7 +13,7 @@ MESH_SHADER_THREADS :: 32
 MESH_VOXELS_PER_WORKGROUP :: 10
 MESH_WORKGROUPS_PER_BRICK :: 52
 MESH_MAX_OUTPUT_VERTICES :: 240
-MESH_HEIGHTFIELD_PATCH_CELLS :: 7
+MESH_HEIGHTFIELD_PATCH_CELLS :: 4
 MESH_MAX_OUTPUT_PRIMITIVES :: 120
 Mesh_Stats :: struct {
 	candidate_bricks:     u32,
@@ -261,7 +261,9 @@ mesh_create_pipeline :: proc(ctx: ^Context, r: ^vulkan.Renderer) {
 		sType            = .PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
 		depthTestEnable  = true,
 		depthWriteEnable = true,
-		depthCompareOp   = .LESS,
+		// Reversed-Z: near is 1 and far is 0, which spends float depth precision
+		// where perspective needs it instead of crowding it at the near plane.
+		depthCompareOp   = .GREATER,
 	}
 	color_attachment := vk.PipelineColorBlendAttachmentState {
 		colorWriteMask = {.R, .G, .B, .A},
@@ -579,11 +581,28 @@ mesh_build_bricks :: proc(ctx: ^Context, world: ^voxel_terrain.World) {
 	mesh.stats.candidate_bricks = u32(len(mesh.bricks))
 }
 
-mesh_heightfield_grid_diameter :: proc(lod_end_distance, cell_size: f32) -> u32 {
-	cell_radius := u32(math.ceil(lod_end_distance / cell_size)) + 2
+// Patch grid covering a LOD out to `reach` metres, which includes the crossfade
+// that extends past the LOD's nominal end distance.
+mesh_heightfield_grid_diameter :: proc(reach, cell_size: f32) -> u32 {
+	cell_radius := u32(math.ceil(reach / cell_size)) + 2
 	patch_radius :=
 		(cell_radius + MESH_HEIGHTFIELD_PATCH_CELLS - 1) / MESH_HEIGHTFIELD_PATCH_CELLS
 	return patch_radius * 2 + 1
+}
+
+// Distance between mesh vertices of a LOD.
+mesh_heightfield_cell_size :: proc(config: Config, lod: int) -> f32 {
+	return config.virtual_voxel_size[lod] * f32(config.mesh_heightfield_cell_stride)
+}
+
+// Furthest horizontal distance a LOD's patches can be visible: its end distance
+// plus the half crossfade into the next LOD (the last LOD has no outer fade).
+mesh_heightfield_lod_reach :: proc(config: Config, lod: int) -> f32 {
+	end_distance := config.heightfield_lod_end_distances[lod]
+	if lod + 1 >= int(config.heightfield_lod_count) {
+		return end_distance
+	}
+	return end_distance * (1 + config.heightfield_lod_transition_ratio)
 }
 
 mesh_update_frame_data :: proc(
@@ -630,8 +649,8 @@ mesh_update_frame_data :: proc(
 	for index in 0 ..< int(input.config.heightfield_lod_count) {
 		diameter :=
 			mesh_heightfield_grid_diameter(
-				input.config.heightfield_lod_end_distances[index],
-				input.config.virtual_voxel_size[index],
+				mesh_heightfield_lod_reach(input.config, index),
+				mesh_heightfield_cell_size(input.config, index),
 			)
 		lod_grid_diameters[index] = diameter
 		heightfield_workgroups += u64(diameter) * u64(diameter)
@@ -646,7 +665,7 @@ mesh_update_frame_data :: proc(
 	dispatch_y := u32((total_workgroups + u64(dispatch_x) - 1) / u64(dispatch_x))
 	assert(dispatch_y <= r.mesh_shader.max_work_group_count[1])
 	uniforms := mesh_bindings.MeshSettings {
-		viewProj = input.camera.view_proj,
+		viewProjRelative = input.camera.relative_view_proj_reverse_z,
 		cameraPosition = input.camera.position,
 		voxelSize = input.voxels.config.voxel_size,
 		nearVoxelDistance = input.config.near_voxel_distance,
@@ -664,7 +683,7 @@ mesh_update_frame_data :: proc(
 		worldRadius = input.world_radius,
 		maxDistance = input.config.far_distance,
 		debugRingRadius = input.debug_ring_radius,
-		heightfieldTransitionWidth = input.config.heightfield_lod_transition_width,
+		heightfieldTransitionRatio = input.config.heightfield_lod_transition_ratio,
 		lodDistances0 = {
 			input.config.heightfield_lod_end_distances[0],
 			input.config.heightfield_lod_end_distances[1],
@@ -739,6 +758,7 @@ mesh_update_frame_data :: proc(
 		},
 		outputSize = {f32(ctx.output_extent.x), f32(ctx.output_extent.y)},
 		voxelTransitionWidth = input.config.voxel_transition_width,
+		heightfieldCellStride = input.config.mesh_heightfield_cell_stride,
 	}
 	vulkan.write_buffer(
 		r,
@@ -760,7 +780,7 @@ mesh_record_frame :: proc(
 	dispatch_x, dispatch_y := mesh_update_frame_data(ctx, r, input, frame_index)
 	clear_values := [2]vk.ClearValue {
 		{color = {float32 = {0, 0, 0, 0}}},
-		{depthStencil = {depth = 1, stencil = 0}},
+		{depthStencil = {depth = 0, stencil = 0}},
 	}
 	pass_info := vk.RenderPassBeginInfo {
 		sType = .RENDER_PASS_BEGIN_INFO,

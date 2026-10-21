@@ -3,7 +3,10 @@ import utils.voxel_math;
 static const uint MAX_LOD_LEVELS = 9u;
 
 struct MeshSettings {
-  float4x4 viewProj;
+  // Camera-relative reversed-Z projection: apply to (worldPosition -
+  // cameraPosition). Keeping the translation out of the matrix preserves vertex
+  // precision far from the world origin.
+  float4x4 viewProjRelative;
   float3 cameraPosition;
   float voxelSize;
   float nearVoxelDistance;
@@ -21,7 +24,7 @@ struct MeshSettings {
   float worldRadius;
   float maxDistance;
   float debugRingRadius;
-  float heightfieldTransitionWidth;
+  float heightfieldTransitionRatio;
   float4 lodDistances0;
   float4 lodDistances1;
   float4 lodDistances2;
@@ -36,7 +39,10 @@ struct MeshSettings {
   uint4 lodGridDiameters2;
   float2 outputSize;
   float voxelTransitionWidth;
-  uint _padding;
+  // Mesh vertices sit every `heightfieldCellStride` virtual cells; triangles
+  // interpolate smoothly, so they need far fewer vertices than the raymarcher
+  // needs cells.
+  uint heightfieldCellStride;
 };
 
 struct VoxelChunk {
@@ -69,8 +75,8 @@ struct TerrainLevel {
   uint sampleCount;
   uint sampleOffset;
   float extent;
-  uint lod;
-  uint _padding;
+  float minHeight;
+  float maxHeight;
 };
 
 struct TerrainSample {
@@ -109,6 +115,10 @@ struct MeshVertex {
   float sourceHeight : TEXCOORD8;
   float quantizedHeight : TEXCOORD9;
   float mountainInfluence : TEXCOORD10;
+  float3 viewOffset : TEXCOORD11;
+  // LOD0 patch whose voxels are resident: it fades out for them. Without
+  // resident voxels (still streaming in) the heightfield stays fully visible.
+  nointerpolation uint voxelBacked : TEXCOORD12;
 };
 
 uniform MeshSettings g_meshSettings;
@@ -131,8 +141,13 @@ static const uint VOXELS_PER_WORKGROUP = 10u;
 static const uint WORKGROUPS_PER_BRICK = 52u;
 static const uint MAX_OUTPUT_VERTICES = 240u;
 static const uint MAX_OUTPUT_PRIMITIVES = 120u;
-static const uint HEIGHTFIELD_PATCH_CELLS = 7u;
-static const uint HEIGHTFIELD_PATCH_VERTICES = 8u;
+// Extra stipple coverage inside a crossfade so the two surfaces overlap rather
+// than leave pinholes where their per-fragment distances differ slightly.
+static const float TRANSITION_DITHER_OVERLAP = 0.15;
+// A patch is a square of columns. Each column emits a top quad plus the side
+// walls on its +x and +z edges, so a patch needs at most 3 quads per column:
+// 16 * 3 * 4 = 192 vertices and 96 primitives, within the mesh output limits.
+static const uint HEIGHTFIELD_PATCH_CELLS = 4u;
 static const uint VOXEL_MATERIALS_PER_WORD = 4u;
 static const uint MATERIAL_FLAG_RESOURCE = 1u;
 static const uint REPRESENTATION_VOXEL = 0u;
@@ -229,21 +244,35 @@ uint lodGridDiameter(uint lod) {
   return g_meshSettings.lodGridDiameters2[lod - 8u];
 }
 
+float verticalStepForLod(uint lod) {
+  return max(lodValue(g_meshSettings.verticalSteps0,
+                      g_meshSettings.verticalSteps1,
+                      g_meshSettings.verticalSteps2, lod),
+             0.001);
+}
+
 TerrainSample loadTerrainSample(TerrainLevel level, int2 sampleCoord) {
   return g_terrainSamples[level.sampleOffset +
                           uint(sampleCoord.y) * level.sampleCount +
                           uint(sampleCoord.x)];
 }
 
-bool sampleTerrainColumn(int2 cell, uint lod, out TerrainSample terrain,
-                         out float quantizedHeight) {
+float meshCellSize(uint lod) {
+  return lodValue(g_meshSettings.virtualVoxelSizes0,
+                  g_meshSettings.virtualVoxelSizes1,
+                  g_meshSettings.virtualVoxelSizes2, lod) *
+         float(max(g_meshSettings.heightfieldCellStride, 1u));
+}
+
+// Samples the terrain at a mesh grid vertex. `slope` is the analytic gradient
+// of the interpolated height (dh/dx, dh/dz), used for shading.
+bool sampleTerrainSurface(int2 cell, uint lod, out TerrainSample terrain,
+                          out float quantizedHeight, out float2 slope) {
   terrain = (TerrainSample)0;
   quantizedHeight = 0.0;
+  slope = 0.0;
   TerrainLevel level = g_terrainLevels[lod];
-  float cellSize =
-      lodValue(g_meshSettings.virtualVoxelSizes0,
-               g_meshSettings.virtualVoxelSizes1,
-               g_meshSettings.virtualVoxelSizes2, lod);
+  float cellSize = meshCellSize(lod);
   float2 cellCenter = float2(cell) * cellSize;
   float2 samplePosition = (cellCenter - level.origin) / level.spacing;
   float maximumSample = float(level.sampleCount - 1u);
@@ -267,16 +296,25 @@ bool sampleTerrainColumn(int2 cell, uint lod, out TerrainSample terrain,
       lerp(lerp(sample00.mountainInfluence, sample10.mountainInfluence, blend.x),
            lerp(sample01.mountainInfluence, sample11.mountainInfluence, blend.x),
            blend.y);
+  slope = float2((sample10.height - sample00.height) * (1.0 - blend.y) +
+                     (sample11.height - sample01.height) * blend.y,
+                 (sample01.height - sample00.height) * (1.0 - blend.x) +
+                     (sample11.height - sample10.height) * blend.x) /
+          level.spacing;
   int2 nearestSample =
       min(int2(floor(samplePosition + 0.5)), maximumCoord);
   terrain.material = loadTerrainSample(level, nearestSample).material;
-  float verticalStep =
-      max(lodValue(g_meshSettings.verticalSteps0,
-                   g_meshSettings.verticalSteps1,
-                   g_meshSettings.verticalSteps2, lod),
-          0.001);
-  quantizedHeight = floor(terrain.height / verticalStep) * verticalStep;
+  // Round to the nearest step: flooring would sink every coarse LOD by half a
+  // step on average and leave a visible ledge at each LOD boundary.
+  float verticalStep = verticalStepForLod(lod);
+  quantizedHeight = floor(terrain.height / verticalStep + 0.5) * verticalStep;
   return true;
+}
+
+bool sampleTerrainColumn(int2 cell, uint lod, out TerrainSample terrain,
+                         out float quantizedHeight) {
+  float2 slope;
+  return sampleTerrainSurface(cell, lod, terrain, quantizedHeight, slope);
 }
 
 float lodEndDistance(uint lod) {
@@ -299,10 +337,7 @@ bool heightfieldPatchForWorkgroup(uint workgroupIndex, out uint lod,
       continue;
     }
     lod = candidateLod;
-    float cellSize =
-        lodValue(g_meshSettings.virtualVoxelSizes0,
-                 g_meshSettings.virtualVoxelSizes1,
-                 g_meshSettings.virtualVoxelSizes2, lod);
+    float cellSize = meshCellSize(lod);
     int2 cameraCell =
         int2(floor(g_meshSettings.cameraPosition.xz / cellSize + 0.5));
     int radius = int(diameter / 2u);
@@ -317,7 +352,157 @@ bool heightfieldPatchForWorkgroup(uint workgroupIndex, out uint lod,
   return false;
 }
 
-bool heightfieldPatchVisible(uint lod, int2 patchStart, float cellSize) {
+// Half width of the crossfade centred on a LOD's outer boundary. It scales with
+// the boundary distance so the fade spans a similar number of pixels at every
+// LOD, however coarse its cells are.
+float lodTransitionHalfWidth(uint lod) {
+  return lodEndDistance(lod) * g_meshSettings.heightfieldTransitionRatio;
+}
+
+float nearestVoxelFadeStart() {
+  return max(g_meshSettings.nearVoxelDistance -
+                 g_meshSettings.voxelTransitionWidth,
+             0.0);
+}
+
+// Nearest horizontal distance at which a LOD can contribute any coverage.
+float lodInnerReach(uint lod) {
+  if (lod == 0u)
+    return g_meshSettings.debugMode == DEBUG_HEIGHTFIELD_ONLY
+               ? 0.0
+               : nearestVoxelFadeStart();
+  return max(lodEndDistance(lod - 1u) - lodTransitionHalfWidth(lod - 1u), 0.0);
+}
+
+// Furthest horizontal distance at which a LOD can contribute any coverage.
+float lodOuterReach(uint lod) {
+  if (lod + 1u >= g_meshSettings.levelCount)
+    return lodEndDistance(lod);
+  return lodEndDistance(lod) + lodTransitionHalfWidth(lod);
+}
+
+float fadeBetween(float lower, float upper, float value) {
+  if (upper <= lower)
+    return value >= upper ? 1.0 : 0.0;
+  float t = saturate((value - lower) / (upper - lower));
+  return t * t * (3.0 - 2.0 * t);
+}
+
+// 0 in the voxel region, 1 once only the heightfield remains.
+float voxelToHeightfieldBlend(float horizontalDistance) {
+  return fadeBetween(nearestVoxelFadeStart(),
+                     g_meshSettings.nearVoxelDistance, horizontalDistance);
+}
+
+// Interleaved gradient noise: stable, resolution independent screen dither.
+float transitionNoise(float2 pixel) {
+  return frac(52.9829189 * frac(dot(pixel, float2(0.06711056, 0.00583715))));
+}
+
+// A surface fading out keeps the low noise values, one fading in keeps the
+// high ones, so the two interleave per pixel instead of z-fighting.
+bool fadeOutKeeps(float visibility, float noise) {
+  return noise < visibility * (1.0 + TRANSITION_DITHER_OVERLAP);
+}
+
+bool fadeInKeeps(float visibility, float noise) {
+  return noise >= 1.0 - visibility * (1.0 + TRANSITION_DITHER_OVERLAP);
+}
+
+bool voxelFragmentVisible(float horizontalDistance, float noise) {
+  if (g_meshSettings.debugMode == DEBUG_VOXEL_ONLY)
+    return true;
+  return fadeOutKeeps(1.0 - voxelToHeightfieldBlend(horizontalDistance), noise);
+}
+
+bool heightfieldFragmentVisible(uint lod, float horizontalDistance,
+                                float noise, bool voxelBacked) {
+  float fadeIn = 1.0;
+  if (lod == 0u) {
+    if (voxelBacked && g_meshSettings.debugMode != DEBUG_HEIGHTFIELD_ONLY)
+      fadeIn = voxelToHeightfieldBlend(horizontalDistance);
+  } else {
+    float boundary = lodEndDistance(lod - 1u);
+    float halfWidth = lodTransitionHalfWidth(lod - 1u);
+    fadeIn = fadeBetween(boundary - halfWidth, boundary + halfWidth,
+                         horizontalDistance);
+  }
+  float fadeOut = 1.0;
+  if (lod + 1u < g_meshSettings.levelCount) {
+    float boundary = lodEndDistance(lod);
+    float halfWidth = lodTransitionHalfWidth(lod);
+    fadeOut = 1.0 - fadeBetween(boundary - halfWidth, boundary + halfWidth,
+                                horizontalDistance);
+  }
+  if (fadeIn <= 0.0 || fadeOut <= 0.0)
+    return false;
+  return fadeInKeeps(fadeIn, noise) && fadeOutKeeps(fadeOut, noise);
+}
+
+// Conservative frustum test for a camera-relative axis-aligned box.
+bool boxOutsideFrustum(float3 boxMinimum, float3 boxMaximum) {
+  float4x4 m = g_meshSettings.viewProjRelative;
+  float4 planes[5] = {
+    m[3] + m[0], m[3] - m[0], m[3] + m[1], m[3] - m[1], m[3] - m[2],
+  };
+  for (uint index = 0u; index < 5u; index++) {
+    float3 normal = planes[index].xyz;
+    float3 farthestAlongNormal =
+        float3(normal.x > 0.0 ? boxMaximum.x : boxMinimum.x,
+               normal.y > 0.0 ? boxMaximum.y : boxMinimum.y,
+               normal.z > 0.0 ? boxMaximum.z : boxMinimum.z);
+    if (dot(normal, farthestAlongNormal) + planes[index].w < 0.0)
+      return true;
+  }
+  return false;
+}
+
+bool heightfieldPatchInFrustum(uint lod, int2 patchStart, float cellSize) {
+  TerrainLevel level = g_terrainLevels[lod];
+  float step = verticalStepForLod(lod);
+  // Columns extend half a cell past their centres; pad by a whole cell.
+  float2 patchMinimum = float2(patchStart - int2(1)) * cellSize;
+  float2 patchMaximum =
+      float2(patchStart + int2(int(HEIGHTFIELD_PATCH_CELLS) + 1)) * cellSize;
+  float3 offsetMinimum =
+      float3(patchMinimum.x, level.minHeight - step, patchMinimum.y) -
+      g_meshSettings.cameraPosition;
+  float3 offsetMaximum =
+      float3(patchMaximum.x, level.maxHeight + step, patchMaximum.y) -
+      g_meshSettings.cameraPosition;
+  return !boxOutsideFrustum(offsetMinimum, offsetMaximum);
+}
+
+// True when the voxel chunks under a LOD0 patch's corners are resident, so the
+// voxel meshes cover it. While chunks are still streaming in (fast movement) the
+// patch must keep drawing instead of leaving a hole.
+bool voxelColumnResident(float2 xz, float height) {
+  int3 voxel = int3(floor(float3(xz.x, height - 0.5, xz.y) /
+                          g_meshSettings.voxelSize));
+  VoxelChunk chunk;
+  return lookupChunk(floorDiv3(voxel, CHUNK_SIZE), chunk);
+}
+
+bool patchVoxelBacked(int2 patchStart, float cellSize) {
+  float2 center = (float2(patchStart) + float(HEIGHTFIELD_PATCH_CELLS) * 0.5) *
+                  cellSize;
+  if (distance(center, g_meshSettings.cameraPosition.xz) >
+      g_meshSettings.nearVoxelDistance + 16.0)
+    return false;
+  for (uint corner = 0u; corner < 4u; corner++) {
+    int2 cell = patchStart + int2(int(corner & 1u), int(corner >> 1u)) *
+                                 int(HEIGHTFIELD_PATCH_CELLS);
+    TerrainSample terrain;
+    float quantizedHeight;
+    if (!sampleTerrainColumn(cell, 0u, terrain, quantizedHeight) ||
+        !voxelColumnResident(float2(cell) * cellSize, terrain.height))
+      return false;
+  }
+  return true;
+}
+
+bool heightfieldPatchVisible(uint lod, int2 patchStart, float cellSize,
+                             bool voxelBacked) {
   if (g_meshSettings.debugMode == DEBUG_VOXEL_ONLY)
     return false;
   float2 patchMinimum = float2(patchStart) * cellSize;
@@ -333,20 +518,11 @@ bool heightfieldPatchVisible(uint lod, int2 patchStart, float cellSize) {
       max(abs(patchMinimum - g_meshSettings.cameraPosition.xz),
           abs(patchMaximum - g_meshSettings.cameraPosition.xz));
   float furthestDistance = length(furthestOffset);
-  float innerDistance =
-      lod == 0u
-          ? (g_meshSettings.debugMode == DEBUG_HEIGHTFIELD_ONLY
-                 ? 0.0
-                 : g_meshSettings.nearVoxelDistance)
-          : lodEndDistance(lod - 1u);
-  float innerOverlap =
-      max(lod == 0u ? g_meshSettings.voxelTransitionWidth
-                    : g_meshSettings.heightfieldTransitionWidth,
-          cellSize);
-  float outerOverlap =
-      max(g_meshSettings.heightfieldTransitionWidth, cellSize);
-  if (closestDistance > lodEndDistance(lod) + outerOverlap ||
-      furthestDistance < max(innerDistance - innerOverlap, 0.0))
+  // Unbacked LOD0 patches are never culled from the inside: they stand in for
+  // voxels that have not been generated yet.
+  bool coveredFromInside = lod != 0u || voxelBacked;
+  if (closestDistance > lodOuterReach(lod) + cellSize ||
+      (coveredFromInside && furthestDistance < lodInnerReach(lod) - cellSize))
     return false;
   float2 closestToWorld =
       clamp(float2(0.0), patchMinimum, patchMaximum);
@@ -359,11 +535,13 @@ MeshVertex makeMeshVertex(float3 worldPosition, uint material, int3 voxel,
                           float sourceHeight, float quantizedHeight,
                           float mountainInfluence) {
   MeshVertex output;
+  float3 viewOffset = worldPosition - g_meshSettings.cameraPosition;
   output.position =
-      mul(g_meshSettings.viewProj, float4(worldPosition, 1.0));
+      mul(g_meshSettings.viewProjRelative, float4(viewOffset, 1.0));
   output.position.y = -output.position.y;
-  output.position.z = (output.position.z + output.position.w) * 0.5;
   output.worldPosition = worldPosition;
+  output.viewOffset = viewOffset;
+  output.voxelBacked = 1u;
   output.material = material;
   output.voxel = voxel;
   output.normal = normal;
@@ -378,6 +556,92 @@ MeshVertex makeMeshVertex(float3 worldPosition, uint material, int3 voxel,
 }
 
 groupshared uint g_faceCount;
+
+// One flat face of a virtual voxel column. Columns match the raymarcher: a flat
+// top at the quantized height and vertical walls wherever a neighbour is lower.
+struct ColumnQuad {
+  bool valid;
+  float3 corner[4];
+  float3 normal;
+  int2 cell;
+  uint material;
+  float sourceHeight;
+  float quantizedHeight;
+  float mountainInfluence;
+  uint slot;
+};
+
+ColumnQuad emptyColumnQuad() {
+  ColumnQuad quad = (ColumnQuad)0;
+  quad.valid = false;
+  return quad;
+}
+
+ColumnQuad makeColumnQuad(int2 cell, TerrainSample terrain, float height,
+                          float3 normal) {
+  ColumnQuad quad = emptyColumnQuad();
+  quad.valid = true;
+  quad.normal = normal;
+  quad.cell = cell;
+  quad.material = terrain.material;
+  quad.sourceHeight = terrain.height;
+  quad.quantizedHeight = height;
+  quad.mountainInfluence = terrain.mountainInfluence;
+  return quad;
+}
+
+// Emits the top of `cell` and the walls on its +x / +z edges. Each wall is owned
+// by the column that stands higher, so shared edges are drawn exactly once.
+void buildColumnQuads(int2 cell, uint lod, float cellSize,
+                      inout ColumnQuad quads[3]) {
+  TerrainSample terrain;
+  float height;
+  if (!sampleTerrainColumn(cell, lod, terrain, height))
+    return;
+  float halfSize = cellSize * 0.5;
+  float2 center = float2(cell) * cellSize;
+  float2 low = center - halfSize;
+  float2 high = center + halfSize;
+
+  quads[0] = makeColumnQuad(cell, terrain, height, float3(0, 1, 0));
+  quads[0].corner[0] = float3(low.x, height, low.y);
+  quads[0].corner[1] = float3(high.x, height, low.y);
+  quads[0].corner[2] = float3(high.x, height, high.y);
+  quads[0].corner[3] = float3(low.x, height, high.y);
+
+  for (uint axis = 0u; axis < 2u; axis++) {
+    int2 neighborCell = cell + (axis == 0u ? int2(1, 0) : int2(0, 1));
+    TerrainSample neighbor;
+    float neighborHeight;
+    if (!sampleTerrainColumn(neighborCell, lod, neighbor, neighborHeight) ||
+        abs(height - neighborHeight) < 1e-4)
+      continue;
+    bool ownHigher = height > neighborHeight;
+    float lowerY = min(height, neighborHeight);
+    float upperY = max(height, neighborHeight);
+    float sign = ownHigher ? 1.0 : -1.0;
+    ColumnQuad wall = ownHigher
+                          ? makeColumnQuad(cell, terrain, height,
+                                           axis == 0u ? float3(sign, 0, 0)
+                                                      : float3(0, 0, sign))
+                          : makeColumnQuad(neighborCell, neighbor,
+                                           neighborHeight,
+                                           axis == 0u ? float3(sign, 0, 0)
+                                                      : float3(0, 0, sign));
+    if (axis == 0u) {
+      wall.corner[0] = float3(high.x, lowerY, low.y);
+      wall.corner[1] = float3(high.x, lowerY, high.y);
+      wall.corner[2] = float3(high.x, upperY, high.y);
+      wall.corner[3] = float3(high.x, upperY, low.y);
+    } else {
+      wall.corner[0] = float3(low.x, lowerY, high.y);
+      wall.corner[1] = float3(high.x, lowerY, high.y);
+      wall.corner[2] = float3(high.x, upperY, high.y);
+      wall.corner[3] = float3(low.x, upperY, high.y);
+    }
+    quads[1u + axis] = wall;
+  }
+}
 
 [shader("mesh")]
 [numthreads(32, 1, 1)]
@@ -407,81 +671,56 @@ void mesh_main(uint3 groupID: SV_GroupID, uint threadID: SV_GroupThreadID,
       SetMeshOutputCounts(0, 0);
       return;
     }
-    float cellSize =
-        lodValue(g_meshSettings.virtualVoxelSizes0,
-                 g_meshSettings.virtualVoxelSizes1,
-                 g_meshSettings.virtualVoxelSizes2, lod);
-    if (!heightfieldPatchVisible(lod, patchStart, cellSize)) {
+    float cellSize = meshCellSize(lod);
+    if (!heightfieldPatchInFrustum(lod, patchStart, cellSize)) {
       SetMeshOutputCounts(0, 0);
       return;
     }
-    SetMeshOutputCounts(
-        HEIGHTFIELD_PATCH_VERTICES * HEIGHTFIELD_PATCH_VERTICES,
-        HEIGHTFIELD_PATCH_CELLS * HEIGHTFIELD_PATCH_CELLS * 2u);
-
-    for (uint vertexSlot = threadID;
-         vertexSlot <
-         HEIGHTFIELD_PATCH_VERTICES * HEIGHTFIELD_PATCH_VERTICES;
-         vertexSlot += 32u) {
-      int2 cell =
-          patchStart +
-          int2(int(vertexSlot % HEIGHTFIELD_PATCH_VERTICES),
-               int(vertexSlot / HEIGHTFIELD_PATCH_VERTICES));
-      TerrainSample terrain;
-      float quantizedHeight;
-      sampleTerrainColumn(cell, lod, terrain, quantizedHeight);
-      TerrainSample neighborTerrain;
-      float leftHeight;
-      float rightHeight;
-      float backHeight;
-      float frontHeight;
-      sampleTerrainColumn(cell + int2(-1, 0), lod, neighborTerrain,
-                          leftHeight);
-      sampleTerrainColumn(cell + int2(1, 0), lod, neighborTerrain,
-                          rightHeight);
-      sampleTerrainColumn(cell + int2(0, -1), lod, neighborTerrain,
-                          backHeight);
-      sampleTerrainColumn(cell + int2(0, 1), lod, neighborTerrain,
-                          frontHeight);
-      float3 normal =
-          normalize(float3(leftHeight - rightHeight, cellSize * 2.0,
-                           backHeight - frontHeight));
+    bool voxelBacked = lod == 0u && patchVoxelBacked(patchStart, cellSize);
+    if (!heightfieldPatchVisible(lod, patchStart, cellSize, voxelBacked)) {
+      SetMeshOutputCounts(0, 0);
+      return;
+    }
+    ColumnQuad quads[3];
+    for (uint quadIndex = 0u; quadIndex < 3u; quadIndex++)
+      quads[quadIndex] = emptyColumnQuad();
+    if (threadID < HEIGHTFIELD_PATCH_CELLS * HEIGHTFIELD_PATCH_CELLS) {
+      int2 cell = patchStart + int2(int(threadID % HEIGHTFIELD_PATCH_CELLS),
+                                    int(threadID / HEIGHTFIELD_PATCH_CELLS));
+      buildColumnQuads(cell, lod, cellSize, quads);
+    }
+    uint quadCount = 0u;
+    for (uint quadIndex = 0u; quadIndex < 3u; quadIndex++) {
+      if (quads[quadIndex].valid)
+        InterlockedAdd(g_faceCount, 1u, quads[quadIndex].slot);
+    }
+    GroupMemoryBarrierWithGroupSync();
+    SetMeshOutputCounts(g_faceCount * 4u, g_faceCount * 2u);
+    for (uint quadIndex = 0u; quadIndex < 3u; quadIndex++) {
+      ColumnQuad quad = quads[quadIndex];
+      if (!quad.valid)
+        continue;
+      uint vertexBase = quad.slot * 4u;
       uint terrainMaterial =
           g_meshSettings.terrainMaterialOffset +
-          min(terrain.material,
-              max(g_meshSettings.terrainMaterialCount, 1u) - 1u);
-      float3 worldPosition =
-          float3(float(cell.x) * cellSize, quantizedHeight,
-                 float(cell.y) * cellSize);
-      vertices[vertexSlot] =
-          makeMeshVertex(worldPosition, terrainMaterial,
-                         int3(cell.x, int(lod), cell.y), normal,
-                         REPRESENTATION_HEIGHTFIELD, lod, cell, cellSize,
-                         terrain.height, quantizedHeight,
-                         terrain.mountainInfluence);
-    }
-    for (uint patchCell = threadID;
-         patchCell < HEIGHTFIELD_PATCH_CELLS * HEIGHTFIELD_PATCH_CELLS;
-         patchCell += 32u) {
-      uint x = patchCell % HEIGHTFIELD_PATCH_CELLS;
-      uint z = patchCell / HEIGHTFIELD_PATCH_CELLS;
-      uint vertexBase = z * HEIGHTFIELD_PATCH_VERTICES + x;
-      uint primitiveBase = patchCell * 2u;
-      triangles[primitiveBase] =
-          uint3(vertexBase, vertexBase + 1u,
-                vertexBase + HEIGHTFIELD_PATCH_VERTICES + 1u);
-      triangles[primitiveBase + 1u] =
-          uint3(vertexBase,
-                vertexBase + HEIGHTFIELD_PATCH_VERTICES + 1u,
-                vertexBase + HEIGHTFIELD_PATCH_VERTICES);
+          min(quad.material, max(g_meshSettings.terrainMaterialCount, 1u) - 1u);
+      for (uint corner = 0u; corner < 4u; corner++) {
+        vertices[vertexBase + corner] = makeMeshVertex(
+            quad.corner[corner], terrainMaterial,
+            int3(quad.cell.x, int(lod), quad.cell.y), quad.normal,
+            REPRESENTATION_HEIGHTFIELD, lod, quad.cell, cellSize,
+            quad.sourceHeight, quad.quantizedHeight, quad.mountainInfluence);
+        vertices[vertexBase + corner].voxelBacked = voxelBacked ? 1u : 0u;
+      }
+      triangles[quad.slot * 2u] =
+          uint3(vertexBase, vertexBase + 1u, vertexBase + 2u);
+      triangles[quad.slot * 2u + 1u] =
+          uint3(vertexBase, vertexBase + 2u, vertexBase + 3u);
     }
     if (threadID == 0u) {
-      InterlockedAdd(
-          g_meshStats[0].heightfieldCells,
-          HEIGHTFIELD_PATCH_CELLS * HEIGHTFIELD_PATCH_CELLS);
-      InterlockedAdd(
-          g_meshStats[0].heightfieldPrimitives,
-          HEIGHTFIELD_PATCH_CELLS * HEIGHTFIELD_PATCH_CELLS * 2u);
+      InterlockedAdd(g_meshStats[0].heightfieldCells,
+                     HEIGHTFIELD_PATCH_CELLS * HEIGHTFIELD_PATCH_CELLS);
+      InterlockedAdd(g_meshStats[0].heightfieldPrimitives, g_faceCount * 2u);
     }
     return;
   }
@@ -495,7 +734,9 @@ void mesh_main(uint3 groupID: SV_GroupID, uint threadID: SV_GroupThreadID,
       clamp(g_meshSettings.cameraPosition.xz, brickMinimum.xz, brickMaximum.xz);
   bool brickCulled = distance(closest, g_meshSettings.cameraPosition.xz) >
                          g_meshSettings.nearVoxelDistance ||
-                     g_meshSettings.debugMode == DEBUG_HEIGHTFIELD_ONLY;
+                     g_meshSettings.debugMode == DEBUG_HEIGHTFIELD_ONLY ||
+                     boxOutsideFrustum(brickMinimum - g_meshSettings.cameraPosition,
+                                       brickMaximum - g_meshSettings.cameraPosition);
   if (brickCulled) {
     if (threadID == 0) {
       InterlockedAdd(g_meshStats[0].culledWorkgroups, 1u);
@@ -660,18 +901,14 @@ float3 heightfieldColor(MeshVertex input, MaterialRenderInfo info) {
       inTransition =
           inTransition ||
           abs(horizontalDistance - lodEndDistance(lod)) <
-              g_meshSettings.heightfieldTransitionWidth;
+              lodTransitionHalfWidth(lod);
     }
     return inTransition ? float3(1.0, 0.04, 0.75) : surface * 0.25;
   }
   if (g_meshSettings.debugMode == DEBUG_HEIGHT_QUANTIZATION) {
-    float verticalStep =
-        max(lodValue(g_meshSettings.verticalSteps0,
-                     g_meshSettings.verticalSteps1,
-                     g_meshSettings.verticalSteps2, input.lod),
-            0.001);
-    float loss =
-        saturate((input.sourceHeight - input.quantizedHeight) / verticalStep);
+    float verticalStep = verticalStepForLod(input.lod);
+    float loss = saturate(abs(input.sourceHeight - input.quantizedHeight) /
+                          (verticalStep * 0.5));
     return lerp(float3(0.08, 0.18, 0.95), float3(1.0, 0.12, 0.02), loss);
   }
   if (g_meshSettings.debugMode == DEBUG_DDA_TRAVERSAL)
@@ -710,26 +947,17 @@ float3 voxelColor(MeshVertex input, MaterialRenderInfo info) {
 
 [shader("fragment")]
 float4 fragment_main(MeshVertex input) : SV_Target {
+  // Distance from the camera, from the precise camera-relative offset.
+  float horizontalDistance = length(input.viewOffset.xz);
+  float noise = transitionNoise(input.position.xy);
   if (input.representation == REPRESENTATION_HEIGHTFIELD) {
     if (length(input.worldPosition.xz) > g_meshSettings.worldRadius)
       discard;
-    float horizontalDistance =
-        length(input.worldPosition.xz - g_meshSettings.cameraPosition.xz);
-    float innerTransitionWidth =
-        input.lod == 0u ? g_meshSettings.voxelTransitionWidth
-                        : g_meshSettings.heightfieldTransitionWidth;
-    float innerDistance =
-        input.lod == 0u
-            ? (g_meshSettings.debugMode == DEBUG_HEIGHTFIELD_ONLY
-                   ? 0.0
-                   : g_meshSettings.nearVoxelDistance)
-            : lodEndDistance(input.lod - 1u);
-    if (horizontalDistance <
-            max(innerDistance - innerTransitionWidth, 0.0) ||
-        horizontalDistance >
-            lodEndDistance(input.lod) +
-                g_meshSettings.heightfieldTransitionWidth)
+    if (!heightfieldFragmentVisible(input.lod, horizontalDistance, noise,
+                                    input.voxelBacked != 0u))
       discard;
+  } else if (!voxelFragmentVisible(horizontalDistance, noise)) {
+    discard;
   }
 
   uint materialLimit =

@@ -5,6 +5,9 @@ import utils.voxel_math;
 static const uint MAX_LOD_LEVELS = 9u;
 
 struct TerrainSettings {
+  // Rotation and projection only: rays are built relative to the camera so the
+  // camera's distance from the world origin cannot degrade their direction.
+  column_major float4x4 relativeInvViewProj;
   float worldRadius;
   float maxDistance;
   float modificationVoxelSize;
@@ -35,7 +38,7 @@ struct TerrainSettings {
   float3 overrideBoundsMin;
   uint statsSampleStride;
   float3 overrideBoundsMax;
-  float heightfieldTransitionWidth;
+  float heightfieldTransitionRatio;
   uint terrainBackend;
   uint3 _padding;
 };
@@ -46,8 +49,8 @@ struct TerrainLevel {
   uint sampleCount;
   uint sampleOffset;
   float extent;
-  uint lod;
-  uint _padding;
+  float minHeight;
+  float maxHeight;
 };
 
 struct TerrainSample {
@@ -203,12 +206,11 @@ static const int BRICKS_PER_AXIS = 4;
 Ray generateCameraRay(uint2 pixelCoord, float2 screenSize) {
   float2 ndc = ((float2(pixelCoord) + 0.5) / screenSize) * 2.0 - 1.0;
   ndc.y = -ndc.y;
-  float4 worldTarget =
-      mul(g_camera.invViewProj, float4(ndc.x, ndc.y, -1.0, 1.0));
-  worldTarget /= worldTarget.w;
+  float4 nearTarget =
+      mul(g_settings.relativeInvViewProj, float4(ndc.x, ndc.y, -1.0, 1.0));
   Ray ray;
   ray.origin = g_camera.position;
-  ray.direction = normalize(worldTarget.xyz - ray.origin);
+  ray.direction = normalize(nearTarget.xyz / nearTarget.w);
   return ray;
 }
 
@@ -337,6 +339,12 @@ float lodValue(float4 values0, float4 values1, float4 values2, uint lod) {
   return values2[lod - 8u];
 }
 
+float verticalStepForLod(uint lod) {
+  return max(lodValue(g_settings.verticalSteps0, g_settings.verticalSteps1,
+                      g_settings.verticalSteps2, lod),
+             0.001);
+}
+
 TerrainSample loadTerrainSample(TerrainLevel level, int2 sampleCoord) {
   return g_samples[level.sampleOffset + uint(sampleCoord.y) * level.sampleCount +
                    uint(sampleCoord.x)];
@@ -376,11 +384,10 @@ bool sampleTerrainColumn(int2 cell, uint lod, out TerrainSample terrain,
   int2 nearestSample =
       min(int2(floor(samplePosition + 0.5)), maximumCoord);
   terrain.material = loadTerrainSample(level, nearestSample).material;
-  float verticalStep =
-      max(lodValue(g_settings.verticalSteps0, g_settings.verticalSteps1,
-                   g_settings.verticalSteps2, lod),
-          0.001);
-  quantizedHeight = floor(terrain.height / verticalStep) * verticalStep;
+  // Round to the nearest step: flooring would sink every coarse LOD by half a
+  // step on average and leave a visible ledge at each LOD boundary.
+  float verticalStep = verticalStepForLod(lod);
+  quantizedHeight = floor(terrain.height / verticalStep + 0.5) * verticalStep;
   return true;
 }
 
@@ -428,8 +435,10 @@ bool traceHeightfieldLod(Ray ray, uint lod, float segmentStart,
       lodValue(g_settings.virtualVoxelSizes0, g_settings.virtualVoxelSizes1,
                g_settings.virtualVoxelSizes2, lod);
   float2 horizontalDirection = ray.direction.xz;
+  // A fixed epsilon vanishes in f32 at large distances, so scale it with t.
   float2 startPosition =
-      ray.origin.xz + horizontalDirection * (segmentStart + 1e-4);
+      ray.origin.xz +
+      horizontalDirection * (segmentStart + max(1e-4, segmentStart * 1e-6));
   int2 cell = int2(floor(startPosition / cellSize + 0.5));
   int2 step = int2(horizontalDirection.x < 0.0 ? -1 : 1,
                    horizontalDirection.y < 0.0 ? -1 : 1);
@@ -513,10 +522,24 @@ HeightfieldHit traceHeightfield(Ray ray, float startDistance) {
                      g_settings.lodDistances2, lod) /
                 horizontalSpeed,
             g_settings.maxDistance);
+
+    // Columns never rise above the level's tallest sample (plus rounding), so
+    // only the part of the segment below that ceiling can hit anything. This
+    // keeps rays that fly over the terrain from walking every cell.
+    float ceiling = g_levels[lod].maxHeight + verticalStepForLod(lod);
+    float traceStart = segmentStart;
+    float traceEnd = segmentEnd;
+    if (ray.direction.y > 1e-6)
+      traceEnd = min(traceEnd, (ceiling - ray.origin.y) / ray.direction.y);
+    else if (ray.direction.y < -1e-6)
+      traceStart = max(traceStart, (ceiling - ray.origin.y) / ray.direction.y);
+    else if (ray.origin.y > ceiling)
+      traceEnd = traceStart;
+
     uint visits;
     HeightfieldHit lodHit;
-    bool hit =
-        traceHeightfieldLod(ray, lod, segmentStart, segmentEnd, lodHit, visits);
+    bool hit = traceHeightfieldLod(ray, lod, traceStart, traceEnd, lodHit,
+                                   visits);
     result.traversedCells += visits;
     result.lodCellVisits[lod] += visits;
     if (hit) {
@@ -719,17 +742,14 @@ float3 heightfieldColor(HeightfieldHit hit) {
       inTransition =
           inTransition ||
           abs(horizontalDistance - boundary) <
-              g_settings.heightfieldTransitionWidth;
+              boundary * g_settings.heightfieldTransitionRatio;
     }
     return inTransition ? float3(1.0, 0.04, 0.75) : surface * 0.25;
   }
   if (g_settings.debugMode == DEBUG_HEIGHT_QUANTIZATION) {
-    float verticalStep =
-        max(lodValue(g_settings.verticalSteps0, g_settings.verticalSteps1,
-                     g_settings.verticalSteps2, hit.lod),
-            0.001);
-    float loss =
-        saturate((hit.terrain.height - hit.quantizedHeight) / verticalStep);
+    float verticalStep = verticalStepForLod(hit.lod);
+    float loss = saturate(abs(hit.terrain.height - hit.quantizedHeight) /
+                          (verticalStep * 0.5));
     return lerp(float3(0.08, 0.18, 0.95), float3(1.0, 0.12, 0.02), loss);
   }
   if (g_settings.debugMode == DEBUG_DDA_TRAVERSAL) {

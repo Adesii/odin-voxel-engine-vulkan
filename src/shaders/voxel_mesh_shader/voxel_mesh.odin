@@ -2,7 +2,7 @@
 package voxel_mesh_shader
 
 MeshSettings :: struct #align(16) {
-	viewProj: matrix[4,4]f32, // offset: 0, size: 64
+	viewProjRelative: matrix[4,4]f32, // offset: 0, size: 64
 	cameraPosition: [3]f32, // offset: 64, size: 12
 	voxelSize: f32, // offset: 76, size: 4
 	nearVoxelDistance: f32, // offset: 80, size: 4
@@ -20,7 +20,7 @@ MeshSettings :: struct #align(16) {
 	worldRadius: f32, // offset: 128, size: 4
 	maxDistance: f32, // offset: 132, size: 4
 	debugRingRadius: f32, // offset: 136, size: 4
-	heightfieldTransitionWidth: f32, // offset: 140, size: 4
+	heightfieldTransitionRatio: f32, // offset: 140, size: 4
 	lodDistances0: [4]f32, // offset: 144, size: 16
 	lodDistances1: [4]f32, // offset: 160, size: 16
 	lodDistances2: [4]f32, // offset: 176, size: 16
@@ -35,7 +35,7 @@ MeshSettings :: struct #align(16) {
 	lodGridDiameters2: [4]u32, // offset: 320, size: 16
 	outputSize: [2]f32, // offset: 336, size: 8
 	voxelTransitionWidth: f32, // offset: 344, size: 4
-	_padding: u32, // offset: 348, size: 4
+	heightfieldCellStride: u32, // offset: 348, size: 4
 }
 
 VoxelChunk :: struct #align(16) {
@@ -84,8 +84,8 @@ TerrainLevel :: struct #align(16) {
 	sampleCount: u32, // offset: 12, size: 4
 	sampleOffset: u32, // offset: 16, size: 4
 	extent: f32, // offset: 20, size: 4
-	lod: u32, // offset: 24, size: 4
-	_padding: u32, // offset: 28, size: 4
+	minHeight: f32, // offset: 24, size: 4
+	maxHeight: f32, // offset: 28, size: 4
 }
 
 TerrainSample :: struct #align(16) {
@@ -97,6 +97,9 @@ TerrainSample :: struct #align(16) {
 
 // --- VOXEL_MESH Pipeline Constants ---
 VOXEL_MESH_MESH_MAIN_ENTRY_POINT :: "mesh_main"
+VOXEL_MESH_THREAD_X :: 32
+VOXEL_MESH_THREAD_Y :: 1
+VOXEL_MESH_THREAD_Z :: 1
 VOXEL_MESH_FRAGMENT_MAIN_ENTRY_POINT :: "fragment_main"
 VOXEL_MESH_UNIFORM_BUFFER_SIZE :: 352
 VOXEL_MESH_BINDING_G_MESHSETTINGS :: 0

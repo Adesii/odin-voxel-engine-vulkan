@@ -33,6 +33,10 @@ Level :: struct {
 	sample_offset: u32,
 	extent:        f32,
 	lod:           u32,
+	// Tallest sample in the level; renderers use it to skip rays that pass above
+	// the terrain without walking any cells.
+	max_height:    f32,
+	min_height:    f32,
 	_generation:   u64,
 	_valid:        bool,
 }
@@ -97,14 +101,21 @@ level_origin_for_camera :: proc(level: Level, config: Cache_Config, camera: [2]f
 regenerate_level :: proc(cache: ^Cache, level_index: int, source: Source, origin: [2]f32) {
 	level := &cache.levels[level_index]
 	level.origin = origin
+	max_height := min(f32)
+	min_height := max(f32)
 	for z: u32 = 0; z < level.sample_count; z += 1 {
 		for x: u32 = 0; x < level.sample_count; x += 1 {
 			world_x := origin.x + f32(x) * level.spacing
 			world_z := origin.y + f32(z) * level.spacing
 			index := level.sample_offset + z * level.sample_count + x
-			cache.samples[index] = source.sample(source.data, world_x, world_z)
+			sample := source.sample(source.data, world_x, world_z)
+			cache.samples[index] = sample
+			max_height = max(max_height, sample.height)
+			min_height = min(min_height, sample.height)
 		}
 	}
+	level.max_height = max_height
+	level.min_height = min_height
 	level._generation += 1
 	level._valid = true
 }

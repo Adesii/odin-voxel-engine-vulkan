@@ -78,7 +78,9 @@ The renderer receives those same live objects, material tables, camera, and terr
 
 `world_config.odin` is the composition boundary for world settings, render settings, and representation/cache settings. Keep their validation aligned when changing distances, LOD counts, cache spacing, voxel scale, or residency. The natural terrain sampler is the source for both heightfield samples and voxel columns, so changes there intentionally affect both representations.
 
-The default terrain stack uses nine factor-of-two levels. Heightfield spacing, virtual cell size, and vertical quantization progress through `1, 2, 4, 8, 16, 32, 64, 128, 256`; LOD band ends are derived from screen coverage. Camera-following inner levels preserve local detail, while one fixed world-centered outer level provides final far-distance coverage without forcing an enormous near cache.
+The default terrain stack uses nine factor-of-two levels. Heightfield sample spacing progresses through `1, 2, 4, 8, 16, 32, 64, 128, 256`; band ends are a fixed fraction of each level's cache extent. Each sample is drawn as `HEIGHTFIELD_CELLS_PER_SAMPLE` (4) virtual cells per axis, interpolated from the samples, and heights are rounded to a step of half a cell, so LOD0 cells match the 0.25 m voxels and every LOD's cells stay a pixel or two wide where its band starts. The renderer config carries cell sizes and vertical steps explicitly; validation only requires cells to tile a sample exactly. Camera-following inner levels preserve local detail, while one fixed world-centered outer level provides final far-distance coverage without forcing an enormous near cache.
+
+Each cache level records its tallest sample (`Level.max_height`). The raymarcher clips every LOD segment to the slab below that ceiling, so rays flying over terrain do not walk cells.
 
 ## Raymarch and mesh responsibilities
 
@@ -88,6 +90,12 @@ Both choices are views of one world, not separate world modes:
 - **Mesh shader:** the terrain compute pass only clears sky color and linear depth. `shader_src/voxel_mesh.slang` emits both exposed faces from resident voxel chunk/brick data and tessellated heightfield LOD patches whose vertices use the shared quantized level/sample data. Hardware depth testing composes that geometry into one terrain result.
 
 The Odin terrain renderer owns common uploads for heightfield levels/samples, resident voxel data, sparse overrides, and materials. The mesh renderer reuses those common heightfield and voxel buffers and adds candidate-brick, mesh-pipeline, depth, and mesh-stat resources. Startup flags choose the initial backend; runtime switching changes only renderer policy and preserves the live world/cache/edit state.
+
+Neighbouring surfaces crossfade rather than cut. In the mesh path the fragment shader interleaves voxels with LOD0 over `voxel_transition_width`, and each LOD with the next over a half width of `heightfield_lod_transition_ratio` times the boundary distance, using complementary screen-space dither with a small overlap so pinholes cannot open. LOD patches are therefore drawn out to their end distance plus the half fade (`mesh_heightfield_lod_reach`), and validation requires the cache to cover that reach.
+
+The mesh path draws one voxel column every `mesh_heightfield_cell_stride` virtual cells (4 by default) to bound triangle count; the raymarcher uses every cell. LOD0 patches fade out for voxels only when the voxel chunks under their corners are resident; otherwise they keep drawing, so fast movement while chunks stream in shows the heightfield instead of a hole.
+
+Precision: nothing in the render path may bake the camera's world position into a matrix. `view.Camera` carries camera-relative `relative_inv_view_proj` (raymarch rays) and `relative_view_proj_reverse_z` (mesh vertices, applied to `world - camera.position`). Mesh depth is reversed-Z (clear 0, `GREATER`). Positions up to ~32 km from the origin lose millimetres to metres in f32 otherwise.
 
 Unlike compute raymarching, rasterized mesh terrain is clipped by the camera projection. The game therefore updates the camera with the configured terrain far distance as its projection far plane; keeping the camera helper's shorter default would silently remove the outer mesh LODs.
 

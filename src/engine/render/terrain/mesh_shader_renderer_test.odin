@@ -39,7 +39,8 @@ terrain_lod_config_rejects_non_monotonic_progressions :: proc(t: ^testing.T) {
 		far_distance = 256,
 		virtual_voxel_size = {1, 2, 4, 0, 0, 0, 0, 0, 0},
 		vertical_quantization = {1, 2, 4, 0, 0, 0, 0, 0, 0},
-		heightfield_lod_transition_width = 2,
+		heightfield_lod_transition_ratio = 0.05,
+		mesh_heightfield_cell_stride = 1,
 	}
 	testing.expect(t, valid_config(config))
 
@@ -119,4 +120,33 @@ mesh_surface_candidates_cross_brick_and_chunk_boundaries :: proc(t: ^testing.T) 
 		voxel_terrain.BRICK_SIZE,
 	}
 	testing.expect_value(t, mesh_brick_kind_at(&world, right_min), voxel_terrain.Brick_Kind.SOLID)
+}
+
+@(test)
+heightfield_lod_reach_includes_crossfade_except_for_last_lod :: proc(t: ^testing.T) {
+	config := Config {
+		backend = .MESH_SHADER,
+		heightfield_lod_count = 3,
+		near_voxel_distance = 32,
+		voxel_transition_width = 8,
+		heightfield_lod_end_distances = {100, 200, 400, 0, 0, 0, 0, 0, 0},
+		far_distance = 400,
+		virtual_voxel_size = {1, 2, 4, 0, 0, 0, 0, 0, 0},
+		vertical_quantization = {0.5, 1, 2, 0, 0, 0, 0, 0, 0},
+		heightfield_lod_transition_ratio = 0.05,
+		mesh_heightfield_cell_stride = 1,
+	}
+	testing.expect(t, valid_config(config))
+	testing.expect(t, abs(mesh_heightfield_lod_reach(config, 0) - 105) < 1e-3)
+	testing.expect(t, abs(mesh_heightfield_lod_reach(config, 1) - 210) < 1e-3)
+	testing.expect_value(t, mesh_heightfield_lod_reach(config, 2), f32(400))
+
+	// The patch grid must cover the fade, not just the nominal end distance.
+	with_fade := mesh_heightfield_grid_diameter(mesh_heightfield_lod_reach(config, 0), 1)
+	without_fade := mesh_heightfield_grid_diameter(config.heightfield_lod_end_distances[0], 1)
+	testing.expect(t, with_fade > without_fade)
+
+	too_wide := config
+	too_wide.heightfield_lod_transition_ratio = 0.5
+	testing.expect(t, !valid_config(too_wide), "overlapping crossfades must be rejected")
 }

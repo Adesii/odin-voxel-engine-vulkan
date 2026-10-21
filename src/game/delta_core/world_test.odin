@@ -229,7 +229,21 @@ render_configuration_is_independent_and_world_aligned :: proc(t: ^testing.T) {
 		cache := render.world_representation.heightfield_cache
 		testing.expect_value(t, render.terrain.heightfield_lod_count, cache.level_count)
 		testing.expect_value(t, cache.level_count, u32(heightfield.MAX_LOD_LEVELS))
-		testing.expect_value(t, render.terrain.virtual_voxel_size, cache.spacing)
+		for index in 0 ..< int(cache.level_count) {
+			cell := render.terrain.virtual_voxel_size[index]
+			testing.expect_value(t, cell * HEIGHTFIELD_CELLS_PER_SAMPLE, cache.spacing[index])
+			testing.expect_value(
+				t,
+				render.terrain.vertical_quantization[index] * HEIGHTFIELD_VERTICAL_STEPS_PER_CELL,
+				cell,
+			)
+		}
+		// LOD0 hands over from voxels, so its cells must not be coarser than a voxel.
+		testing.expect(
+			t,
+			render.terrain.virtual_voxel_size[0] <= world.base_voxel_size,
+			"LOD0 cells are coarser than the voxels they hand over from",
+		)
 		for index in 1 ..< int(cache.level_count) {
 			testing.expect_value(t, cache.spacing[index], cache.spacing[index - 1] * 2)
 		}
@@ -292,4 +306,23 @@ runtime_renderer_switch_preserves_live_world :: proc(t: ^testing.T) {
 	toggle_terrain_backend(game)
 	testing.expect_value(t, game.render_config.terrain.backend, terrain_renderer.Backend.RAYMARCH)
 	testing.expect_value(t, world_fingerprint(&game.world), before_fingerprint)
+}
+
+@(test)
+default_mesh_heightfield_dispatch_stays_bounded :: proc(t: ^testing.T) {
+	sizes := [?]World_Size{World_Size.SMALL, World_Size.MEDIUM, World_Size.LARGE}
+	for size in sizes {
+		render := default_render_config(default_world_config(size))
+		workgroups: u64
+		for index in 0 ..< int(render.terrain.heightfield_lod_count) {
+			diameter := terrain_renderer.mesh_heightfield_grid_diameter(
+				terrain_renderer.mesh_heightfield_lod_reach(render.terrain, index),
+				terrain_renderer.mesh_heightfield_cell_size(render.terrain, index),
+			)
+			workgroups += u64(diameter) * u64(diameter)
+		}
+		// Most workgroups exit in the cull test; keep the launch count well below
+		// the 2^22 total mesh workgroup count guaranteed by the extension.
+		testing.expectf(t, workgroups < 1 << 19, "%v heightfield workgroups for %v", workgroups, size)
+	}
 }

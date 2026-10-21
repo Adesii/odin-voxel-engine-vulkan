@@ -53,3 +53,32 @@ cache_streams_only_after_recenter :: proc(t: ^testing.T) {
 		u64(1),
 	)
 }
+
+@(test)
+levels_track_their_tallest_sample :: proc(t: ^testing.T) {
+	cache: Cache
+	testing.expect(
+		t,
+		init(
+			&cache,
+			{
+				level_count = 2,
+				sample_count = 9,
+				spacing = {1, 2, 0, 0, 0, 0, 0, 0, 0},
+				recenter_interval_cells = 2,
+				camera_centered_level_count = 2,
+			},
+		),
+	)
+	defer destroy(&cache)
+	testing.expect(t, update(&cache, Source{sample = cache_test_sampler}, {0, 0}))
+	for index in 0 ..< int(cache.config.level_count) {
+		level := cache.levels[index]
+		expected := min(f32)
+		for sample in cache.samples[level.sample_offset:][:level.sample_count * level.sample_count] {
+			expected = max(expected, sample.height)
+		}
+		testing.expect_value(t, level.max_height, expected)
+	}
+	testing.expect(t, cache.levels[1].max_height > cache.levels[0].max_height)
+}

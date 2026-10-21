@@ -2,6 +2,7 @@ package delta_core
 import terrain_renderer "../../engine/render/terrain"
 import heightfield "../../engine/terrain/heightfield"
 import voxel_terrain "../../engine/terrain/voxel"
+import "core:math"
 
 World_Size :: enum u8 {
 	SMALL,
@@ -88,6 +89,22 @@ default_world_config :: proc(
 	return config
 }
 
+// Each heightfield sample is drawn as an N x N block of virtual cells. Samples
+// are spaced 1..256 m apart, so cells as wide as the spacing read as huge blocks
+// at 5-10 pixels each; subdividing keeps every LOD's cells a pixel or two wide
+// at the start of its band (LOD0 cells match the 0.25 m voxels it hands over
+// from). The extra detail is interpolated, so no additional samples are needed.
+HEIGHTFIELD_CELLS_PER_SAMPLE :: 4
+// Heights snap to a finer step than the cells are wide, so slopes stay smooth
+// and neighbouring LODs sit within a fraction of a cell of one another.
+HEIGHTFIELD_VERTICAL_STEPS_PER_CELL :: 2
+// The mesh backend places a vertex every N virtual cells (must divide
+// HEIGHTFIELD_CELLS_PER_SAMPLE): smooth triangles need far fewer vertices than
+// the raymarcher's blocky cells need cells, and the vertex count dominates its cost.
+HEIGHTFIELD_MESH_CELL_STRIDE :: 4
+// Half width of each LOD crossfade as a fraction of its boundary distance.
+HEIGHTFIELD_LOD_TRANSITION_RATIO :: 0.05
+
 default_render_config :: proc(
 	world: World_Config,
 	backend: terrain_renderer.Backend = .RAYMARCH,
@@ -104,6 +121,12 @@ default_render_config :: proc(
 	for index in 0 ..< heightfield.MAX_LOD_LEVELS {
 		heightfield_lod_end_distances[index] = sample_cells * cache.spacing[index] * 0.4
 	}
+	virtual_voxel_size: [heightfield.MAX_LOD_LEVELS]f32
+	vertical_quantization: [heightfield.MAX_LOD_LEVELS]f32
+	for index in 0 ..< heightfield.MAX_LOD_LEVELS {
+		virtual_voxel_size[index] = cache.spacing[index] / HEIGHTFIELD_CELLS_PER_SAMPLE
+		vertical_quantization[index] = virtual_voxel_size[index] / HEIGHTFIELD_VERTICAL_STEPS_PER_CELL
+	}
 	far_distance :=
 		max(
 			world_diameter(world),
@@ -118,9 +141,10 @@ default_render_config :: proc(
 			voxel_transition_width = 4 * 4,
 			heightfield_lod_end_distances = heightfield_lod_end_distances,
 			far_distance = far_distance,
-			virtual_voxel_size = cache.spacing,
-			vertical_quantization = cache.spacing,
-			heightfield_lod_transition_width = cache.spacing[3],
+			virtual_voxel_size = virtual_voxel_size,
+			vertical_quantization = vertical_quantization,
+			heightfield_lod_transition_ratio = HEIGHTFIELD_LOD_TRANSITION_RATIO,
+			mesh_heightfield_cell_stride = HEIGHTFIELD_MESH_CELL_STRIDE,
 			stats_sample_stride = 16,
 		},
 		world_representation = {
@@ -175,14 +199,18 @@ validate_render_config :: proc(world: World_Config, config: Render_Config) -> bo
 	safe_radius_cells :=
 		(f32(cache.sample_count - 1) - f32(cache.recenter_interval_cells)) * 0.5
 	for index in 0 ..< int(cache.level_count) {
-		if terrain.virtual_voxel_size[index] != cache.spacing[index] {
+		// Virtual cells must tile a sample exactly so cell centres land on samples.
+		cells_per_sample := cache.spacing[index] / terrain.virtual_voxel_size[index]
+		if cells_per_sample < 1 ||
+		   abs(cells_per_sample - math.round(cells_per_sample)) > 1e-4 ||
+		   u32(math.round(cells_per_sample)) % terrain.mesh_heightfield_cell_stride != 0 {
 			return false
 		}
 		if index < int(cache.camera_centered_level_count) {
 			required_radius :=
-				terrain.heightfield_lod_end_distances[index] +
+				terrain_renderer.mesh_heightfield_lod_reach(terrain, index) +
 				f32(terrain_renderer.MESH_HEIGHTFIELD_PATCH_CELLS + 1) *
-					cache.spacing[index]
+					terrain_renderer.mesh_heightfield_cell_size(terrain, index)
 			if required_radius > safe_radius_cells * cache.spacing[index] {
 				return false
 			}
@@ -192,7 +220,7 @@ validate_render_config :: proc(world: World_Config, config: Render_Config) -> bo
 			required_radius :=
 				world.world_radius +
 				f32(terrain_renderer.MESH_HEIGHTFIELD_PATCH_CELLS + 1) *
-					cache.spacing[index]
+					terrain_renderer.mesh_heightfield_cell_size(terrain, index)
 			if fixed_level_radius < required_radius {
 				return false
 			}
